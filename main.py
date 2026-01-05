@@ -343,6 +343,33 @@ def get_benchmark_data(period, interval):
         data.columns = data.columns.get_level_values(0)
     return data
 
+@st.cache_data(ttl=600)
+def run_monte_carlo(s_close, predict_days, iterations=500):
+    # Using log returns for more robust statistical properties
+    log_returns = np.log(s_close / s_close.shift(1)).dropna()
+    
+    # Parameters for simulation
+    u = log_returns.mean()
+    var = log_returns.var()
+    drift = u - (0.5 * var)
+    stdev = log_returns.std()
+    
+    daily_returns = np.exp(drift + stdev * np.random.standard_normal((predict_days, iterations)))
+    
+    last_price = float(s_close.iloc[-1])
+    price_list = np.zeros_like(daily_returns)
+    price_list[0] = last_price * daily_returns[0]
+    
+    for t_step in range(1, predict_days):
+        price_list[t_step] = price_list[t_step - 1] * daily_returns[t_step]
+    
+    # Calculate percentiles
+    expected_path = np.median(price_list, axis=1)
+    optimistic_path = np.percentile(price_list, 95, axis=1)
+    pessimistic_path = np.percentile(price_list, 5, axis=1)
+    
+    return expected_path, optimistic_path, pessimistic_path, last_price
+
 if ticker_input:
     data = get_stock_data(ticker_input, period, interval)
     
@@ -803,41 +830,20 @@ if ticker_input:
             st.markdown(f"### {t['prediction_header']}")
             st.info(t["prediction_desc"])
             
-            # --- Monte Carlo Simulation Logic ---
-            # Using log returns for more robust statistical properties
-            log_returns = np.log(s_close / s_close.shift(1)).dropna()
-            
-            # Parameters for simulation
-            u = log_returns.mean()
-            var = log_returns.var()
-            drift = u - (0.5 * var)
-            stdev = log_returns.std()
-            
-            iterations = 500 # Number of simulated paths
-            daily_returns = np.exp(drift + stdev * np.random.standard_normal((predict_days, iterations)))
-            
-            last_price = float(s_close.iloc[-1])
-            price_list = np.zeros_like(daily_returns)
-            price_list[0] = last_price * daily_returns[0]
-            
-            for t_step in range(1, predict_days):
-                price_list[t_step] = price_list[t_step - 1] * daily_returns[t_step]
-            
-            # Calculate percentiles
-            expected_path = np.median(price_list, axis=1)
-            optimistic_path = np.percentile(price_list, 95, axis=1)
-            pessimistic_path = np.percentile(price_list, 5, axis=1)
+            # --- Monte Carlo Simulation ---
+            with st.spinner(t.get("backtest_wait", "Calculating...")):
+                expected_path, optimistic_path, pessimistic_path, last_price_mc = run_monte_carlo(s_close, predict_days)
             
             prediction_dates = [data.index[-1] + timedelta(days=i) for i in range(1, predict_days + 1)]
             
             # Forecast Metric
             f_col1, f_col2, f_col3 = st.columns(3)
             with f_col1:
-                st.metric(t["mc_expected"], f"{expected_path[-1]:.2f}", f"{(expected_path[-1]-last_price):+.2f}")
+                st.metric(t["mc_expected"], f"{expected_path[-1]:.2f}", f"{(expected_path[-1]-last_price_mc):+.2f}")
             with f_col2:
-                st.metric(t["mc_optimistic"], f"{optimistic_path[-1]:.2f}", f"{(optimistic_path[-1]-last_price):+.2f}", delta_color="normal")
+                st.metric(t["mc_optimistic"], f"{optimistic_path[-1]:.2f}", f"{(optimistic_path[-1]-last_price_mc):+.2f}", delta_color="normal")
             with f_col3:
-                st.metric(t["mc_pessimistic"], f"{pessimistic_path[-1]:.2f}", f"{(pessimistic_path[-1]-last_price):+.2f}", delta_color="inverse")
+                st.metric(t["mc_pessimistic"], f"{pessimistic_path[-1]:.2f}", f"{(pessimistic_path[-1]-last_price_mc):+.2f}", delta_color="inverse")
             
             # Forecast Chart
             fig_pred = go.Figure()
