@@ -4,6 +4,14 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import numpy as np
+import time
+import requests
+
+# Set up a requests session with a user-agent to avoid some rate limiting issues
+session = requests.Session()
+session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+})
 
 st.set_page_config(page_title="Taiwan Stock Market Analysis", layout="wide")
 
@@ -286,9 +294,9 @@ translations = {
 }
 
 # Sidebar settings
-st.sidebar.header(t["settings"])
 lang = st.sidebar.selectbox("Language / 語言", options=["English", "繁體中文"], index=1)
 t = translations[lang]
+st.sidebar.header(t["settings"])
 
 st.title(t["title"])
 st.markdown(t["description"])
@@ -329,21 +337,29 @@ def format_large_number(num, lang):
         else:
             return f"{num:,.0f}"
 
-import time
-
 @st.cache_data(ttl=3600)
 def get_stock_info(ticker):
-    try:
-        s = yf.Ticker(ticker)
-        return s.info
-    except Exception:
-        return {}
+    for i in range(3):
+        try:
+            s = yf.Ticker(ticker, session=session)
+            info = s.info
+            if info and isinstance(info, dict) and len(info) > 0:
+                return info
+        except Exception as e:
+            if "RateLimitError" in str(type(e)) or "Too Many Requests" in str(e):
+                if i < 2:
+                    time.sleep(5 * (i + 1)) # Longer wait for info as it's more prone to rate limits
+                    continue
+            else:
+                # For other errors, maybe the ticker is just invalid
+                break
+    return {}
 
 @st.cache_data(ttl=3600)
 def get_stock_data(ticker, period, interval):
     for i in range(3):
         try:
-            data = yf.download(ticker, period=period, interval=interval, progress=False)
+            data = yf.download(ticker, period=period, interval=interval, progress=False, session=session)
             if data is not None and not data.empty:
                 # Handle cases where yfinance returns a MultiIndex for a single ticker
                 if isinstance(data.columns, pd.MultiIndex):
@@ -353,24 +369,34 @@ def get_stock_data(ticker, period, interval):
                         data.columns = data.columns.get_level_values(1)
                 return data
         except Exception as e:
-            if i < 2:
-                time.sleep(2 * (i + 1))
-                continue
+            if "RateLimitError" in str(type(e)) or "Too Many Requests" in str(e):
+                if i < 2:
+                    time.sleep(5 * (i + 1))
+                    continue
+            else:
+                if i < 2:
+                    time.sleep(2 * (i + 1))
+                    continue
     return None
 
 @st.cache_data(ttl=3600)
 def get_benchmark_data(period, interval):
     for i in range(3):
         try:
-            data = yf.download("^TWII", period=period, interval=interval, progress=False)
+            data = yf.download("^TWII", period=period, interval=interval, progress=False, session=session)
             if data is not None and not data.empty:
                 if isinstance(data.columns, pd.MultiIndex):
                     data.columns = data.columns.get_level_values(0)
                 return data
         except Exception as e:
-            if i < 2:
-                time.sleep(2 * (i + 1))
-                continue
+            if "RateLimitError" in str(type(e)) or "Too Many Requests" in str(e):
+                if i < 2:
+                    time.sleep(5 * (i + 1))
+                    continue
+            else:
+                if i < 2:
+                    time.sleep(2 * (i + 1))
+                    continue
     return None
 
 @st.cache_data(ttl=600)
@@ -496,13 +522,18 @@ if ticker_input:
             "2637.TW": "慧洋-KY", "2207.TW": "和泰車", "2204.TW": "中華", "1402.TW": "遠東新",
             "1476.TW": "儒星", "1477.TW": "聚陽", "9933.TW": "中鼎", "6505.TW": "台塑化",
             "1326.TW": "台化", "1102.TW": "亞泥", "1504.TW": "東元", "1513.TW": "中興電",
-            "1519.TW": "華城", "1503.TW": "士電", "2371.TW": "大同", "2633.TW": "台灣高鐵",
-            "2634.TW": "漢翔", "2727.TW": "王品", "2707.TW": "晶華", "1210.TW": "大成",
-            "1722.TW": "台肥", "1717.TW": "長興", "1710.TW": "東聯", "1704.TW": "長榮鋼",
-            "2501.TW": "國建", "2542.TW": "興富發", "2548.TW": "聖暉", "5534.TW": "聖暉*",
-            "6205.TW": "詮欣", "6214.TW": "精誠", "6271.TW": "同欣電", "6285.TW": "啟碁",
-            "8016.TW": "矽創", "8150.TW": "南茂", "8299.TW": "群聯", "8436.TW": "大江",
-            "9939.TW": "宏全", "9941.TW": "裕融", "9945.TW": "潤泰新", "9958.TW": "世紀鋼",
+            "1519.TW": "華城", "1503.TW": "士電", "2371.TW": "大同", "2633.TW": "台灣高鐵", "2634.TW": "漢翔", "2727.TW": "王品",
+            "2707.TW": "晶華", "8044.TW": "網家", "3045.TW": "台灣大", "4904.TW": "遠傳",
+            "2360.TW": "致茂", "2355.TW": "敬鵬", "2457.TW": "飛宏", "2458.TW": "義隆",
+            "2481.TW": "強茂", "3017.TW": "奇鋐", "3032.TW": "偉訓", "3533.TW": "嘉澤",
+            "3596.TW": "智易", "4919.TW": "新唐", "4958.TW": "臻鼎-KY", "5269.TW": "祥碩",
+            "6176.TW": "瑞儀", "6206.TW": "飛捷", "6269.TW": "台郡", "6409.TW": "旭隼",
+            "8016.TW": "矽創", "8081.TW": "致新", "8215.TW": "明基材", "8299.TW": "群聯",
+            "9938.TW": "百和", "9945.TW": "潤泰新", "1722.TW": "台肥", "1210.TW": "大成",
+            "1717.TW": "長興", "1710.TW": "東聯", "1704.TW": "長榮鋼", "2501.TW": "國建",
+            "2542.TW": "興富發", "2548.TW": "聖暉", "5534.TW": "聖暉*", "6205.TW": "詮欣",
+            "6214.TW": "精誠", "6271.TW": "同欣電", "6285.TW": "啟碁", "8150.TW": "南茂",
+            "8436.TW": "大江", "9939.TW": "宏全", "9941.TW": "裕融", "9958.TW": "世紀鋼",
             "0050.TW": "元大台灣50", "0056.TW": "元大高股息", "00878.TW": "國泰永續高股息",
             "00919.TW": "群益台灣精選高息", "00929.TW": "復華台灣科技優息", "2312.TW": "金寶",
             "2352.TW": "佳世達", "2323.TW": "中環", "6116.TW": "彩晶", "2401.TW": "凌陽",
@@ -639,7 +670,10 @@ if ticker_input:
             signals_df = bt_df[bt_df['Signal'] != 0].tail(10).copy()
             if not signals_df.empty:
                 signals_df['Type'] = signals_df['Signal'].map({1: t["signal_buy"], -1: t["signal_sell"]})
-                st.table(signals_df[['Close', 'Type']].sort_index(ascending=False))
+                # Translate columns for display
+                display_df = signals_df[['Close', 'Type']].sort_index(ascending=False)
+                display_df.columns = [t["current_price"], t["signal_label"]]
+                st.table(display_df)
             else:
                 st.write(t["no_signals"])
 
