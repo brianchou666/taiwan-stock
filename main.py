@@ -103,7 +103,7 @@ st.markdown("""
 translations = {
     "English": {
         "title": "TW Stock Analysis",
-        "description": "Real-time TWSE analytics dashboard.",
+        "description": "Real-time TWSE analytics dashboard dashboard.",
         "settings": "Settings",
         "lang_label": "Language",
         "ticker_label": "Stock Ticker",
@@ -120,7 +120,7 @@ translations = {
         "price_action": "Price Action",
         "key_stats": "Market Stats",
         "raw_data": "Raw Market Data",
-        "no_data": "Ticker not found.",
+        "no_data": "Ticker not found or Rate Limited.",
         "trailing_pe": "PE Ratio",
         "forward_pe": "Fwd PE",
         "div_yield": "Dividend",
@@ -186,7 +186,11 @@ translations = {
         "ai_score": "AI Confidence Score",
         "ai_reasoning": "AI Reasoning Path",
         "ai_summary": "Summary & Action",
-        "signal_history": "Signal History"
+        "signal_history": "Signal History",
+        "risk_calc_desc": "Based on 1M capital, 2% risk per trade.",
+        "no_signals": "No recent signals.",
+        "bt_title": "7-Day Backtest Accuracy Check",
+        "rate_limit_msg": "Too many requests. Please wait a few minutes and try again."
     },
     "繁體中文": {
         "title": "台股分析助手",
@@ -207,7 +211,7 @@ translations = {
         "price_action": "價格走勢",
         "key_stats": "關鍵統計",
         "raw_data": "歷史數據明細",
-        "no_data": "查無此代碼，請重新輸入 (如 2330.TW)。",
+        "no_data": "查無此代碼或請求過於頻繁。",
         "trailing_pe": "本益比",
         "forward_pe": "預測本益比",
         "div_yield": "殖利率",
@@ -273,12 +277,16 @@ translations = {
         "ai_score": "AI 信心評分",
         "ai_reasoning": "AI 推理路徑",
         "ai_summary": "綜合總結與行動",
-        "signal_history": "訊號歷史記錄"
+        "signal_history": "訊號歷史記錄",
+        "risk_calc_desc": "基於 100萬 資金，單筆風險 2% 計算。",
+        "no_signals": "近期無交易訊號。",
+        "bt_title": "7日預測準確度驗證",
+        "rate_limit_msg": "請求過於頻繁。請稍候幾分鐘再試。"
     }
 }
 
 # Sidebar settings
-st.sidebar.header("Settings")
+st.sidebar.header(t["settings"])
 lang = st.sidebar.selectbox("Language / 語言", options=["English", "繁體中文"], index=1)
 t = translations[lang]
 
@@ -321,27 +329,49 @@ def format_large_number(num, lang):
         else:
             return f"{num:,.0f}"
 
+import time
+
+@st.cache_data(ttl=3600)
+def get_stock_info(ticker):
+    try:
+        s = yf.Ticker(ticker)
+        return s.info
+    except Exception:
+        return {}
+
 @st.cache_data(ttl=3600)
 def get_stock_data(ticker, period, interval):
-    try:
-        data = yf.download(ticker, period=period, interval=interval, progress=False)
-        # Handle cases where yfinance returns a MultiIndex for a single ticker
-        if isinstance(data.columns, pd.MultiIndex):
-            if 'Close' in data.columns.get_level_values(0):
-                data.columns = data.columns.get_level_values(0)
-            else:
-                data.columns = data.columns.get_level_values(1)
-        return data
-    except Exception as e:
-        st.error(f"Error fetching data: {e}")
-        return None
+    for i in range(3):
+        try:
+            data = yf.download(ticker, period=period, interval=interval, progress=False)
+            if data is not None and not data.empty:
+                # Handle cases where yfinance returns a MultiIndex for a single ticker
+                if isinstance(data.columns, pd.MultiIndex):
+                    if 'Close' in data.columns.get_level_values(0):
+                        data.columns = data.columns.get_level_values(0)
+                    else:
+                        data.columns = data.columns.get_level_values(1)
+                return data
+        except Exception as e:
+            if i < 2:
+                time.sleep(2 * (i + 1))
+                continue
+    return None
 
 @st.cache_data(ttl=3600)
 def get_benchmark_data(period, interval):
-    data = yf.download("^TWII", period=period, interval=interval, progress=False)
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(0)
-    return data
+    for i in range(3):
+        try:
+            data = yf.download("^TWII", period=period, interval=interval, progress=False)
+            if data is not None and not data.empty:
+                if isinstance(data.columns, pd.MultiIndex):
+                    data.columns = data.columns.get_level_values(0)
+                return data
+        except Exception as e:
+            if i < 2:
+                time.sleep(2 * (i + 1))
+                continue
+    return None
 
 @st.cache_data(ttl=600)
 def run_monte_carlo(s_close, predict_days, iterations=500):
@@ -424,8 +454,7 @@ if ticker_input:
         ma60_s = s_close.rolling(window=60).mean()
         
         # Stock Info
-        stock = yf.Ticker(ticker_input)
-        info = stock.info
+        info = get_stock_info(ticker_input)
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -473,7 +502,12 @@ if ticker_input:
             "2501.TW": "國建", "2542.TW": "興富發", "2548.TW": "聖暉", "5534.TW": "聖暉*",
             "6205.TW": "詮欣", "6214.TW": "精誠", "6271.TW": "同欣電", "6285.TW": "啟碁",
             "8016.TW": "矽創", "8150.TW": "南茂", "8299.TW": "群聯", "8436.TW": "大江",
-            "9939.TW": "宏全", "9941.TW": "裕融", "9945.TW": "潤泰新", "9958.TW": "世紀鋼"
+            "9939.TW": "宏全", "9941.TW": "裕融", "9945.TW": "潤泰新", "9958.TW": "世紀鋼",
+            "0050.TW": "元大台灣50", "0056.TW": "元大高股息", "00878.TW": "國泰永續高股息",
+            "00919.TW": "群益台灣精選高息", "00929.TW": "復華台灣科技優息", "2312.TW": "金寶",
+            "2352.TW": "佳世達", "2323.TW": "中環", "6116.TW": "彩晶", "2401.TW": "凌陽",
+            "3006.TW": "晶豪科", "3044.TW": "健鼎", "2449.TW": "京元電子", "2451.TW": "創見",
+            "2338.TW": "光罩", "2367.TW": "燿華", "2498.TW": "宏達電", "2388.TW": "威盛"
         }
         
         if lang == "繁體中文":
@@ -597,7 +631,7 @@ if ticker_input:
                 capital = 1000000 # Default 1M TWD
                 suggested_shares = (capital * 0.02) / risk_per_share
                 st.write(f"**{t['pos_size']}**: `{int(suggested_shares)}` 股")
-                st.caption(f"基於 100萬 資金，單筆風險 2% 計算。")
+                st.caption(t["risk_calc_desc"])
             
             # --- Recent Signals Table ---
             st.markdown("---")
@@ -607,7 +641,7 @@ if ticker_input:
                 signals_df['Type'] = signals_df['Signal'].map({1: t["signal_buy"], -1: t["signal_sell"]})
                 st.table(signals_df[['Close', 'Type']].sort_index(ascending=False))
             else:
-                st.write("近期無交易訊號。")
+                st.write(t["no_signals"])
 
         with tab1:
             # Main Price Chart with MA and BB
@@ -948,7 +982,7 @@ if ticker_input:
                 fig_bt.add_trace(go.Scatter(x=actual_s_close.index, y=bt_expected_prices, name=t["predicted_price_bt"], line=dict(color='#3498DB', width=2, dash='dash')))
                 
                 fig_bt.update_layout(
-                    title=f"7-Day Backtest Accuracy Check",
+                    title=t["bt_title"],
                     yaxis_title="Price (TWD)",
                     template="plotly_dark",
                     height=350,
@@ -962,4 +996,5 @@ if ticker_input:
                 st.subheader(t["raw_data"])
                 st.dataframe(data.tail(50), use_container_width=True)
     else:
-        st.warning(t["no_data"])
+        st.error(t["no_data"])
+        st.warning(f"⚠️ {t['rate_limit_msg']}")
