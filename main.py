@@ -7,6 +7,61 @@ import numpy as np
 import time
 import requests
 
+# Global Stock Name Map
+TW_STOCK_MAP = {
+    "2330.TW": "台積電", "2317.TW": "鴻海", "2454.TW": "聯發科", "2308.TW": "台達電",
+    "2303.TW": "聯電", "2881.TW": "富邦金", "2882.TW": "國泰金", "2412.TW": "中華電",
+    "1301.TW": "台塑", "1303.TW": "南亞", "2603.TW": "長榮", "2002.TW": "中鋼",
+    "2382.TW": "廣達", "2357.TW": "華碩", "3008.TW": "大立光", "2886.TW": "兆豐金",
+    "2884.TW": "玉山金", "2891.TW": "中信金", "5880.TW": "合庫金", "2892.TW": "第一金",
+    "2880.TW": "華南金", "2885.TW": "元大金", "2883.TW": "開發金", "2887.TW": "台新金",
+    "2890.TW": "永豐金", "2379.TW": "瑞昱", "3034.TW": "聯詠", "3711.TW": "日月光投控",
+    "2327.TW": "國巨", "2345.TW": "智邦", "3231.TW": "緯創", "6669.TW": "緯穎",
+    "2301.TW": "光寶科", "2377.TW": "微星", "2376.TW": "技嘉", "1101.TW": "台泥",
+    "1216.TW": "統一", "2105.TW": "正新", "2201.TW": "裕隆", "2609.TW": "陽明",
+    "2615.TW": "萬海", "2610.TW": "華航", "2618.TW": "長榮航", "2912.TW": "統一超",
+    "9904.TW": "寶成", "9910.TW": "豐泰", "9921.TW": "巨大", "9914.TW": "美利達",
+    "5434.TW": "崇越", "6239.TW": "力成", "2337.TW": "旺宏", "2408.TW": "南亞科",
+    "2409.TW": "友達", "3481.TW": "群創", "2344.TW": "華邦電", "2313.TW": "華通",
+    "2368.TW": "金像電", "2383.TW": "台光電", "6213.TW": "聯茂", "3037.TW": "欣興",
+    "8046.TW": "南電", "3189.TW": "景碩", "2474.TW": "可成", "2354.TW": "鴻準",
+    "2353.TW": "宏碁", "2324.TW": "仁寶", "2356.TW": "英業達", "4938.TW": "和碩",
+    "2395.TW": "研華", "6414.TW": "樺漢", "6415.TW": "矽力-KY", "3661.TW": "世芯-KY",
+    "3443.TW": "創意", "3035.TW": "智原", "3532.TW": "台勝科", "6488.TW": "環球晶",
+    "5483.TW": "中美晶", "8069.TW": "元太", "1605.TW": "華新", "2606.TW": "裕民",
+    "2637.TW": "慧洋-KY", "2207.TW": "和泰車", "2204.TW": "中華", "1402.TW": "遠東新",
+    "1476.TW": "儒星", "1477.TW": "聚陽", "9933.TW": "中鼎", "6505.TW": "台塑化",
+    "1326.TW": "台化", "1102.TW": "亞泥", "1504.TW": "東元", "1513.TW": "中興電",
+    "1519.TW": "華城", "1503.TW": "士電", "2371.TW": "大同", "2633.TW": "台灣高鐵", "2634.TW": "漢翔", "2727.TW": "王品",
+    "2707.TW": "晶華", "8044.TW": "網家", "3045.TW": "台灣大", "4904.TW": "遠傳",
+    "2360.TW": "致茂", "2355.TW": "敬鵬", "2457.TW": "飛宏", "2458.TW": "義隆",
+    "2481.TW": "強茂", "3017.TW": "奇鋐", "3032.TW": "偉訓", "3533.TW": "嘉澤",
+    "3596.TW": "智易", "4919.TW": "新唐", "4958.TW": "臻鼎-KY", "5269.TW": "祥碩",
+    "6176.TW": "瑞儀", "6206.TW": "飛捷", "6269.TW": "台郡", "6409.TW": "旭隼",
+    "8016.TW": "矽創", "8081.TW": "致新", "8215.TW": "明基材", "8299.TW": "群聯",
+    "9938.TW": "百和", "9945.TW": "潤泰新", "1722.TW": "台肥", "1210.TW": "大成",
+    "1717.TW": "長興", "1710.TW": "東聯", "1704.TW": "長榮鋼", "2501.TW": "國建",
+    "2542.TW": "興富發", "2548.TW": "聖暉", "5534.TW": "聖暉*", "6205.TW": "詮欣",
+    "6214.TW": "精誠", "6271.TW": "同欣電", "6285.TW": "啟碁", "8150.TW": "南茂",
+    "8436.TW": "大江", "9939.TW": "宏全", "9941.TW": "裕融", "9958.TW": "世紀鋼",
+    "0050.TW": "元大台灣50", "0056.TW": "元大高股息", "00878.TW": "國泰永續高股息",
+    "00919.TW": "群益台灣精選高息", "00929.TW": "復華台灣科技優息", "2312.TW": "金寶",
+    "2352.TW": "佳世達", "2323.TW": "中環", "6116.TW": "彩晶", "2401.TW": "凌陽",
+    "3006.TW": "晶豪科", "3044.TW": "健鼎", "2449.TW": "京元電子", "2451.TW": "創見",
+    "2338.TW": "光罩", "2367.TW": "燿華", "2498.TW": "宏達電", "2388.TW": "威盛",
+    "2351.TW": "順德", "2441.TW": "超豐", "3023.TW": "信邦", "3036.TW": "文曄",
+    "3576.TW": "聯合再生", "3702.TW": "大聯大", "4961.TW": "天詠", "5234.TW": "達興材料",
+    "6278.TW": "台表科", "8112.TW": "至上", "2328.TW": "廣宇", "2404.TW": "漢唐",
+    "2448.TW": "晶元光電", "3019.TW": "亞光", "3042.TW": "晶技", "3406.TW": "玉晶光",
+    "4915.TW": "致伸", "5347.TW": "世界", "6139.TW": "亞翔", "6147.TW": "頎邦",
+    "6230.TW": "超眾", "6257.TW": "矽格", "6282.TW": "康舒", "6443.TW": "元晶",
+    "8021.TW": "尖點", "8050.TW": "廣積", "8070.TW": "長華*", "8105.TW": "凌巨",
+    "8261.TW": "富鼎", "8996.TW": "高力", "00940.TW": "元大台灣價值高息", "006208.TW": "富邦台50"
+}
+
+
+# Prediction settings
+
 # Set up a requests session with a user-agent to avoid some rate limiting issues
 session = requests.Session()
 session.headers.update({
@@ -314,6 +369,11 @@ predict_days = st.sidebar.slider(t["prediction_days"], 1, 30, 7)
 st.sidebar.markdown("---")
 show_raw = st.sidebar.checkbox(t["tab_raw"], value=False)
 
+# Cache management
+if st.sidebar.button("🧹 " + ("Clear Cache" if lang == "English" else "清除快取")):
+    st.cache_data.clear()
+    st.rerun()
+
 def format_large_number(num, lang):
     if not isinstance(num, (int, float)):
         return "N/A"
@@ -339,65 +399,89 @@ def format_large_number(num, lang):
 
 @st.cache_data(ttl=3600)
 def get_stock_info(ticker):
-    for i in range(3):
+    """
+    獲取股票基本資訊，包含重試機制以處理 Rate Limit。
+    """
+    for i in range(5): # 增加重試次數
         try:
             s = yf.Ticker(ticker, session=session)
             info = s.info
-            if info and isinstance(info, dict) and len(info) > 0:
+            if info and isinstance(info, dict) and len(info) > 5: # 基本資訊應該要有一定數量
                 return info
+            
+            # 如果回傳資訊太少，可能是被限流或抓取不完全
+            if i < 4:
+                wait_time = (i + 1) * 5
+                time.sleep(wait_time)
+                continue
         except Exception as e:
-            if "RateLimitError" in str(type(e)) or "Too Many Requests" in str(e):
-                if i < 2:
-                    time.sleep(5 * (i + 1)) # Longer wait for info as it's more prone to rate limits
+            error_msg = str(e).lower()
+            if "rate limit" in error_msg or "429" in error_msg or "too many requests" in error_msg:
+                if i < 4:
+                    wait_time = (i + 1) * 15 # 限流時等待更久
+                    time.sleep(wait_time)
                     continue
             else:
-                # For other errors, maybe the ticker is just invalid
+                # 其他錯誤不重試
                 break
     return {}
 
 @st.cache_data(ttl=3600)
 def get_stock_data(ticker, period, interval):
+    """
+    獲取股票歷史數據，包含重試與 MultiIndex 處理。
+    """
     for i in range(3):
         try:
             data = yf.download(ticker, period=period, interval=interval, progress=False, session=session)
             if data is not None and not data.empty:
-                # Handle cases where yfinance returns a MultiIndex for a single ticker
+                # 處理 yfinance 新版的 MultiIndex 格式
                 if isinstance(data.columns, pd.MultiIndex):
                     if 'Close' in data.columns.get_level_values(0):
                         data.columns = data.columns.get_level_values(0)
                     else:
                         data.columns = data.columns.get_level_values(1)
                 return data
+            
+            if i < 2:
+                time.sleep(3 * (i + 1))
+                continue
         except Exception as e:
-            if "RateLimitError" in str(type(e)) or "Too Many Requests" in str(e):
+            error_msg = str(e).lower()
+            if "rate limit" in error_msg or "too many requests" in error_msg:
                 if i < 2:
-                    time.sleep(5 * (i + 1))
+                    time.sleep(10 * (i + 1))
                     continue
             else:
                 if i < 2:
-                    time.sleep(2 * (i + 1))
+                    time.sleep(2)
                     continue
     return None
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400) # 大盤資料快取 24 小時
 def get_benchmark_data(period, interval):
+    """
+    獲取大盤資料 (^TWII)。
+    """
     for i in range(3):
         try:
             data = yf.download("^TWII", period=period, interval=interval, progress=False, session=session)
             if data is not None and not data.empty:
                 if isinstance(data.columns, pd.MultiIndex):
-                    data.columns = data.columns.get_level_values(0)
+                    if 'Close' in data.columns.get_level_values(0):
+                        data.columns = data.columns.get_level_values(0)
+                    else:
+                        data.columns = data.columns.get_level_values(1)
                 return data
+            if i < 2:
+                time.sleep(5)
+                continue
         except Exception as e:
-            if "RateLimitError" in str(type(e)) or "Too Many Requests" in str(e):
-                if i < 2:
-                    time.sleep(5 * (i + 1))
-                    continue
-            else:
-                if i < 2:
-                    time.sleep(2 * (i + 1))
-                    continue
+            if i < 2:
+                time.sleep(10)
+                continue
     return None
+
 
 @st.cache_data(ttl=600)
 def run_monte_carlo(s_close, predict_days, iterations=500):
@@ -497,53 +581,9 @@ if ticker_input:
         # --- Main Section Header ---
         stock_name = info.get('shortName') or info.get('longName', '')
         
-        # Mapping for common Taiwan stocks to Chinese
-        tw_stock_map = {
-            "2330.TW": "台積電", "2317.TW": "鴻海", "2454.TW": "聯發科", "2308.TW": "台達電",
-            "2303.TW": "聯電", "2881.TW": "富邦金", "2882.TW": "國泰金", "2412.TW": "中華電",
-            "1301.TW": "台塑", "1303.TW": "南亞", "2603.TW": "長榮", "2002.TW": "中鋼",
-            "2382.TW": "廣達", "2357.TW": "華碩", "3008.TW": "大立光", "2886.TW": "兆豐金",
-            "2884.TW": "玉山金", "2891.TW": "中信金", "5880.TW": "合庫金", "2892.TW": "第一金",
-            "2880.TW": "華南金", "2885.TW": "元大金", "2883.TW": "開發金", "2887.TW": "台新金",
-            "2890.TW": "永豐金", "2379.TW": "瑞昱", "3034.TW": "聯詠", "3711.TW": "日月光投控",
-            "2327.TW": "國巨", "2345.TW": "智邦", "3231.TW": "緯創", "6669.TW": "緯穎",
-            "2301.TW": "光寶科", "2377.TW": "微星", "2376.TW": "技嘉", "1101.TW": "台泥",
-            "1216.TW": "統一", "2105.TW": "正新", "2201.TW": "裕隆", "2609.TW": "陽明",
-            "2615.TW": "萬海", "2610.TW": "華航", "2618.TW": "長榮航", "2912.TW": "統一超",
-            "9904.TW": "寶成", "9910.TW": "豐泰", "9921.TW": "巨大", "9914.TW": "美利達",
-            "5434.TW": "崇越", "6239.TW": "力成", "2337.TW": "旺宏", "2408.TW": "南亞科",
-            "2409.TW": "友達", "3481.TW": "群創", "2344.TW": "華邦電", "2313.TW": "華通",
-            "2368.TW": "金像電", "2383.TW": "台光電", "6213.TW": "聯茂", "3037.TW": "欣興",
-            "8046.TW": "南電", "3189.TW": "景碩", "2474.TW": "可成", "2354.TW": "鴻準",
-            "2353.TW": "宏碁", "2324.TW": "仁寶", "2356.TW": "英業達", "4938.TW": "和碩",
-            "2395.TW": "研華", "6414.TW": "樺漢", "6415.TW": "矽力-KY", "3661.TW": "世芯-KY",
-            "3443.TW": "創意", "3035.TW": "智原", "3532.TW": "台勝科", "6488.TW": "環球晶",
-            "5483.TW": "中美晶", "8069.TW": "元太", "1605.TW": "華新", "2606.TW": "裕民",
-            "2637.TW": "慧洋-KY", "2207.TW": "和泰車", "2204.TW": "中華", "1402.TW": "遠東新",
-            "1476.TW": "儒星", "1477.TW": "聚陽", "9933.TW": "中鼎", "6505.TW": "台塑化",
-            "1326.TW": "台化", "1102.TW": "亞泥", "1504.TW": "東元", "1513.TW": "中興電",
-            "1519.TW": "華城", "1503.TW": "士電", "2371.TW": "大同", "2633.TW": "台灣高鐵", "2634.TW": "漢翔", "2727.TW": "王品",
-            "2707.TW": "晶華", "8044.TW": "網家", "3045.TW": "台灣大", "4904.TW": "遠傳",
-            "2360.TW": "致茂", "2355.TW": "敬鵬", "2457.TW": "飛宏", "2458.TW": "義隆",
-            "2481.TW": "強茂", "3017.TW": "奇鋐", "3032.TW": "偉訓", "3533.TW": "嘉澤",
-            "3596.TW": "智易", "4919.TW": "新唐", "4958.TW": "臻鼎-KY", "5269.TW": "祥碩",
-            "6176.TW": "瑞儀", "6206.TW": "飛捷", "6269.TW": "台郡", "6409.TW": "旭隼",
-            "8016.TW": "矽創", "8081.TW": "致新", "8215.TW": "明基材", "8299.TW": "群聯",
-            "9938.TW": "百和", "9945.TW": "潤泰新", "1722.TW": "台肥", "1210.TW": "大成",
-            "1717.TW": "長興", "1710.TW": "東聯", "1704.TW": "長榮鋼", "2501.TW": "國建",
-            "2542.TW": "興富發", "2548.TW": "聖暉", "5534.TW": "聖暉*", "6205.TW": "詮欣",
-            "6214.TW": "精誠", "6271.TW": "同欣電", "6285.TW": "啟碁", "8150.TW": "南茂",
-            "8436.TW": "大江", "9939.TW": "宏全", "9941.TW": "裕融", "9958.TW": "世紀鋼",
-            "0050.TW": "元大台灣50", "0056.TW": "元大高股息", "00878.TW": "國泰永續高股息",
-            "00919.TW": "群益台灣精選高息", "00929.TW": "復華台灣科技優息", "2312.TW": "金寶",
-            "2352.TW": "佳世達", "2323.TW": "中環", "6116.TW": "彩晶", "2401.TW": "凌陽",
-            "3006.TW": "晶豪科", "3044.TW": "健鼎", "2449.TW": "京元電子", "2451.TW": "創見",
-            "2338.TW": "光罩", "2367.TW": "燿華", "2498.TW": "宏達電", "2388.TW": "威盛"
-        }
-        
         if lang == "繁體中文":
-            if ticker_input.upper() in tw_stock_map:
-                stock_name = tw_stock_map[ticker_input.upper()]
+            if ticker_input.upper() in TW_STOCK_MAP:
+                stock_name = TW_STOCK_MAP[ticker_input.upper()]
             elif "Taiwan Semiconductor Manufacturing" in stock_name:
                 stock_name = "台積電"
         
