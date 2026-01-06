@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import numpy as np
-st.set_page_config(page_title="台股分析", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="股票分析", layout="wide", initial_sidebar_state="expanded")
 
 # Custom CSS for Institutional Look
 st.markdown("""
@@ -121,12 +121,21 @@ st.markdown("""
     ::-webkit-scrollbar-track {
         background: transparent;
     }
+
+    /* Animation Classes */
+    @keyframes slideIn {
+        from { width: 0; opacity: 0; }
+        to { opacity: 1; }
+    }
+    .progress-bar-fill {
+        animation: slideIn 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 # Translations - Fixed to Chinese
 t = {
-    "title": "台股分析",
+    "title": "股票分析",
     "description": "提供專業級別的即時市場情報與深度分析。",
     "settings": "基礎設定",
     "ticker_label": "股票代碼",
@@ -161,6 +170,7 @@ t = {
 
 @st.cache_data
 def get_stock_data(ticker, period, interval):
+    ticker = ticker.strip().upper()
     try:
         data = yf.download(ticker, period=period, interval=interval)
         if isinstance(data.columns, pd.MultiIndex):
@@ -274,7 +284,8 @@ def create_tv_gauge(score_val, label, color):
         plot_bgcolor='rgba(0,0,0,0)',
         font={'color': "#d1d4dc", 'family': "Inter, sans-serif"},
         height=220,
-        margin=dict(l=20, r=20, t=40, b=20)
+        margin=dict(l=20, r=20, t=40, b=20),
+        transition={'duration': 1000, 'easing': 'elastic-in-out'}
     )
     return fig
 
@@ -344,7 +355,12 @@ with st.sidebar:
     
     # Actual Ticker Input
     ticker_val = st.session_state.get('ticker_input', "2330.TW")
-    ticker_input = st.text_input(t["ticker_label"], value=ticker_val, key="main_ticker_input", help="輸入台股代碼 (如 2330.TW) 或美股代碼 (如 AAPL)")
+    ticker_input = st.text_input(
+        t["ticker_label"], 
+        value=ticker_val, 
+        key="main_ticker_input", 
+        help="台股請加後綴，例如：2330.TW (上市) 或 8069.TWO (上櫃)；美股直接輸入代碼，例如：AAPL"
+    )
     if ticker_input != ticker_val:
         st.session_state.ticker_input = ticker_input
         st.rerun()
@@ -786,11 +802,6 @@ if ticker_input:
         <span>🔮 未來路徑機率模擬</span>
         <span style="font-size: 0.8rem; background: #238636; color: white; padding: 2px 8px; border-radius: 4px; font-weight: normal;">蒙地卡羅演算法</span>
     </h3>
-    <p style="color: #8B949E; font-size: 0.9rem; line-height: 1.6; margin-bottom: 25px;">
-        <b>什麼是蒙地卡羅模擬？</b><br>
-        想像我們讓電腦進行 1,000 次「平行時空」的模擬，每次模擬都會根據過去的波動率隨機產生一種可能的走勢。
-        透過這些模擬，我們可以觀察到股價在未來一段時間內最有可能的落點範圍，幫助您評估風險與潛在獲利空間。
-    </p>
 ''', unsafe_allow_html=True)
             
             # Calculations
@@ -847,7 +858,8 @@ if ticker_input:
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=10, r=10, t=50, b=10),
                     hovermode="x unified",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10))
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
+                    transition={'duration': 800, 'easing': 'cubic-in-out'}
                 )
                 fig_mc.update_xaxes(showgrid=False, zeroline=False)
                 fig_mc.update_yaxes(showgrid=True, gridcolor='rgba(48, 54, 61, 0.5)', zeroline=False)
@@ -882,7 +894,7 @@ if ticker_input:
 <span style="color: {'#3FB950' if prob_3pct > 30 else '#26a69a'}; font-weight: bold;">{prob_3pct:.1f}%</span>
 </div>
 <div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
-<div style="width: {prob_3pct}%; height: 100%; background: {'#3FB950' if prob_3pct > 30 else '#26a69a'}; box-shadow: {'0 0 10px rgba(63, 185, 80, 0.4)' if prob_3pct > 40 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
+<div class="progress-bar-fill" style="width: {prob_3pct}%; height: 100%; background: {'#3FB950' if prob_3pct > 30 else '#26a69a'}; box-shadow: {'0 0 10px rgba(63, 185, 80, 0.4)' if prob_3pct > 40 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
 </div>
 </div>
 <div style="margin-bottom: 25px;">
@@ -891,7 +903,7 @@ if ticker_input:
 <span style="color: {'#3FB950' if prob_5pct > 20 else '#26a69a'}; font-weight: bold;">{prob_5pct:.1f}%</span>
 </div>
 <div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
-<div style="width: {prob_5pct}%; height: 100%; background: {'#3FB950' if prob_5pct > 20 else '#26a69a'}; opacity: {0.4 + (prob_5pct/100)}; box-shadow: {'0 0 10px rgba(63, 185, 80, 0.5)' if prob_5pct > 30 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
+<div class="progress-bar-fill" style="width: {prob_5pct}%; height: 100%; background: {'#3FB950' if prob_5pct > 20 else '#26a69a'}; opacity: {0.4 + (prob_5pct/100)}; box-shadow: {'0 0 10px rgba(63, 185, 80, 0.5)' if prob_5pct > 30 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
 </div>
 </div>
 <div style="margin-bottom: 25px;">
@@ -900,7 +912,7 @@ if ticker_input:
 <span style="color: {'#58A6FF' if win_prob > 50 else '#8B949E'}; font-weight: bold;">{win_prob:.1f}%</span>
 </div>
 <div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
-<div style="width: {win_prob}%; height: 100%; background: {'#58A6FF' if win_prob > 50 else '#30363D'}; box-shadow: {'0 0 10px rgba(88, 166, 255, 0.4)' if win_prob > 60 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
+<div class="progress-bar-fill" style="width: {win_prob}%; height: 100%; background: {'#58A6FF' if win_prob > 50 else '#30363D'}; box-shadow: {'0 0 10px rgba(88, 166, 255, 0.4)' if win_prob > 60 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
 </div>
 </div>
 <div>
@@ -909,7 +921,7 @@ if ticker_input:
 <span style="color: {'#f85149' if prob_minus_5pct > 20 else '#ef5350'}; font-weight: bold;">{prob_minus_5pct:.1f}%</span>
 </div>
 <div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
-<div style="width: {prob_minus_5pct}%; height: 100%; background: {'#f85149' if prob_minus_5pct > 20 else '#ef5350'}; opacity: {0.5 + (prob_minus_5pct/100)}; box-shadow: {'0 0 10px rgba(248, 81, 73, 0.5)' if prob_minus_5pct > 25 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
+<div class="progress-bar-fill" style="width: {prob_minus_5pct}%; height: 100%; background: {'#f85149' if prob_minus_5pct > 20 else '#ef5350'}; opacity: {0.5 + (prob_minus_5pct/100)}; box-shadow: {'0 0 10px rgba(248, 81, 73, 0.5)' if prob_minus_5pct > 25 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
 </div>
 </div>
 </div>
