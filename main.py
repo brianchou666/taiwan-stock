@@ -498,7 +498,7 @@ if ticker_input:
                 win_prob_7d
             )
 
-            rec_col1, rec_col2, rec_col3, rec_col4 = st.columns([1, 1, 1, 1])
+            rec_col1, rec_col2, rec_col3 = st.columns([1, 1, 1])
             with rec_col1:
                 st.markdown(f'''
                     <div style="background: rgba(88, 166, 255, 0.1); padding: 15px; border-radius: 8px; border-left: 5px solid {res['action']['color']}; height: 110px;">
@@ -521,26 +521,6 @@ if ticker_input:
                 ''', unsafe_allow_html=True)
             
             with rec_col3:
-                if latest_sig:
-                    st.markdown(f'''
-                        <div style="background: rgba(255, 255, 255, 0.03); padding: 15px; border-radius: 8px; border-left: 5px solid {latest_sig['color']}; height: 110px;">
-                            <div style="color: #8B949E; font-size: 0.75rem; margin-bottom: 5px;">最新觸發信號 ({latest_sig['date'].strftime('%m/%d')})</div>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 1.2rem;">{latest_sig['icon']}</span>
-                                <span style="color: {latest_sig['color']}; font-weight: bold; font-size: 1.2rem;">{latest_sig['type']}</span>
-                                <span style="color: #FFFFFF; font-weight: bold; margin-left: auto;">${latest_sig['price']:.1f}</span>
-                            </div>
-                        </div>
-                    ''', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'''
-                        <div style="background: rgba(255, 255, 255, 0.03); padding: 15px; border-radius: 8px; border-left: 5px solid #8B949E; height: 110px;">
-                            <div style="color: #8B949E; font-size: 0.75rem; margin-bottom: 5px;">最新觸發信號</div>
-                            <div style="color: #E0E0E0; font-size: 0.9rem; padding: 5px 0;">目前尚無明確信號</div>
-                        </div>
-                    ''', unsafe_allow_html=True)
-            
-            with rec_col4:
                 st.markdown(f'''
                     <div style="background: rgba(188, 140, 242, 0.1); padding: 15px; border-radius: 8px; border-left: 5px solid #BC8CF2; height: 110px;">
                         <div style="color: #8B949E; font-size: 0.75rem; margin-bottom: 5px;">7日趨勢預測</div>
@@ -890,52 +870,48 @@ if ticker_input:
                 
                 st.markdown(f'''
 <div style="background: {mc_card_bg}; padding: 20px; border-radius: 12px; border: 1px solid {mc_card_border}; height: 400px; box-shadow: {mc_card_shadow}; transition: all 0.5s ease;">
-    <h4 style="margin-top: 0; color: #FFFFFF; font-size: 1rem; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
-        <span>🎯 到達特定價格機率</span>
-        <span style="font-size: 0.7rem; background: {mc_card_border}; color: white; padding: 2px 6px; border-radius: 4px; opacity: 0.8;">
-            {'看多' if win_prob > 55 else '看空' if win_prob < 45 else '中性'}
-        </span>
-    </h4>
-    
-    <div style="margin-bottom: 25px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-            <span style="color: #8B949E; font-size: 0.85rem;">上漲超過 +3% (${target_3pct:.1f})</span>
-            <span style="color: {'#3FB950' if prob_3pct > 30 else '#26a69a'}; font-weight: bold;">{prob_3pct:.1f}%</span>
-        </div>
-        <div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
-            <div style="width: {prob_3pct}%; height: 100%; background: {'#3FB950' if prob_3pct > 30 else '#26a69a'}; box-shadow: {'0 0 10px rgba(63, 185, 80, 0.4)' if prob_3pct > 40 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
-        </div>
-    </div>
-    
-    <div style="margin-bottom: 25px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-            <span style="color: #8B949E; font-size: 0.85rem;">上漲超過 +5% (${target_5pct:.1f})</span>
-            <span style="color: {'#3FB950' if prob_5pct > 20 else '#26a69a'}; font-weight: bold;">{prob_5pct:.1f}%</span>
-        </div>
-        <div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
-            <div style="width: {prob_5pct}%; height: 100%; background: {'#3FB950' if prob_5pct > 20 else '#26a69a'}; opacity: {0.4 + (prob_5pct/100)}; box-shadow: {'0 0 10px rgba(63, 185, 80, 0.5)' if prob_5pct > 30 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
-        </div>
-    </div>
-    
-    <div style="margin-bottom: 25px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-            <span style="color: #8B949E; font-size: 0.85rem;">維持平盤以上 (${current_price:.1f})</span>
-            <span style="color: {'#58A6FF' if win_prob > 50 else '#8B949E'}; font-weight: bold;">{win_prob:.1f}%</span>
-        </div>
-        <div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
-            <div style="width: {win_prob}%; height: 100%; background: {'#58A6FF' if win_prob > 50 else '#30363D'}; box-shadow: {'0 0 10px rgba(88, 166, 255, 0.4)' if win_prob > 60 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
-        </div>
-    </div>
-    
-    <div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-            <span style="color: #8B949E; font-size: 0.85rem;">跌破 -5% (${target_minus_5pct:.1f})</span>
-            <span style="color: {'#f85149' if prob_minus_5pct > 20 else '#ef5350'}; font-weight: bold;">{prob_minus_5pct:.1f}%</span>
-        </div>
-        <div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
-            <div style="width: {prob_minus_5pct}%; height: 100%; background: {'#f85149' if prob_minus_5pct > 20 else '#ef5350'}; opacity: {0.5 + (prob_minus_5pct/100)}; box-shadow: {'0 0 10px rgba(248, 81, 73, 0.5)' if prob_minus_5pct > 25 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
-        </div>
-    </div>
+<h4 style="margin-top: 0; color: #FFFFFF; font-size: 1rem; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+<span>🎯 到達特定價格機率</span>
+<span style="font-size: 0.7rem; background: {mc_card_border}; color: white; padding: 2px 6px; border-radius: 4px; opacity: 0.8;">
+{'看多' if win_prob > 55 else '看空' if win_prob < 45 else '中性'}
+</span>
+</h4>
+<div style="margin-bottom: 25px;">
+<div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+<span style="color: #8B949E; font-size: 0.85rem;">上漲超過 +3% (${target_3pct:.1f})</span>
+<span style="color: {'#3FB950' if prob_3pct > 30 else '#26a69a'}; font-weight: bold;">{prob_3pct:.1f}%</span>
+</div>
+<div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
+<div style="width: {prob_3pct}%; height: 100%; background: {'#3FB950' if prob_3pct > 30 else '#26a69a'}; box-shadow: {'0 0 10px rgba(63, 185, 80, 0.4)' if prob_3pct > 40 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
+</div>
+</div>
+<div style="margin-bottom: 25px;">
+<div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+<span style="color: #8B949E; font-size: 0.85rem;">上漲超過 +5% (${target_5pct:.1f})</span>
+<span style="color: {'#3FB950' if prob_5pct > 20 else '#26a69a'}; font-weight: bold;">{prob_5pct:.1f}%</span>
+</div>
+<div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
+<div style="width: {prob_5pct}%; height: 100%; background: {'#3FB950' if prob_5pct > 20 else '#26a69a'}; opacity: {0.4 + (prob_5pct/100)}; box-shadow: {'0 0 10px rgba(63, 185, 80, 0.5)' if prob_5pct > 30 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
+</div>
+</div>
+<div style="margin-bottom: 25px;">
+<div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+<span style="color: #8B949E; font-size: 0.85rem;">維持平盤以上 (${current_price:.1f})</span>
+<span style="color: {'#58A6FF' if win_prob > 50 else '#8B949E'}; font-weight: bold;">{win_prob:.1f}%</span>
+</div>
+<div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
+<div style="width: {win_prob}%; height: 100%; background: {'#58A6FF' if win_prob > 50 else '#30363D'}; box-shadow: {'0 0 10px rgba(88, 166, 255, 0.4)' if win_prob > 60 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
+</div>
+</div>
+<div>
+<div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+<span style="color: #8B949E; font-size: 0.85rem;">跌破 -5% (${target_minus_5pct:.1f})</span>
+<span style="color: {'#f85149' if prob_minus_5pct > 20 else '#ef5350'}; font-weight: bold;">{prob_minus_5pct:.1f}%</span>
+</div>
+<div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
+<div style="width: {prob_minus_5pct}%; height: 100%; background: {'#f85149' if prob_minus_5pct > 20 else '#ef5350'}; opacity: {0.5 + (prob_minus_5pct/100)}; box-shadow: {'0 0 10px rgba(248, 81, 73, 0.5)' if prob_minus_5pct > 25 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
+</div>
+</div>
 </div>
 ''', unsafe_allow_html=True)
 
@@ -953,29 +929,29 @@ if ticker_input:
             
             # Risk/Reward Analysis
             st.markdown(f'''
-            <div style="background: rgba(88, 166, 255, 0.05); padding: 15px; border-radius: 6px; border: 1px solid #30363D; margin-top: 15px;">
-                <h4 style="margin-top: 0; font-size: 0.9rem; color: #58A6FF; display: flex; align-items: center; gap: 8px;">
-                    <span>💡 投資策略參考</span>
-                </h4>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
-                    <div>
-                        <div style="color: #8B949E; font-size: 0.75rem;">潛在獲利空間</div>
-                        <div style="color: #26a69a; font-weight: bold; font-size: 1.1rem;">+{((p95.iloc[-1]/current_price)-1)*100:.2f}%</div>
-                        <div style="color: #8B949E; font-size: 0.7rem; margin-top: 4px;">若市場走勢強勁，理論上的獲利上限。</div>
-                    </div>
-                    <div>
-                        <div style="color: #8B949E; font-size: 0.75rem;">潛在回檔風險</div>
-                        <div style="color: #ef5350; font-weight: bold; font-size: 1.1rem;">{((p5.iloc[-1]/current_price)-1)*100:.2f}%</div>
-                        <div style="color: #8B949E; font-size: 0.7rem; margin-top: 4px;">若市場轉弱，應注意的可能跌幅空間。</div>
-                    </div>
-                    <div>
-                        <div style="color: #8B949E; font-size: 0.75rem;">風報比 (勝率權衡)</div>
-                        <div style="color: #FFFFFF; font-weight: bold; font-size: 1.1rem;">{abs(((p95.iloc[-1]/current_price)-1) / ((p5.iloc[-1]/current_price)-1)):.2f}</div>
-                        <div style="color: #8B949E; font-size: 0.7rem; margin-top: 4px;">每承擔 1 元風險可獲得的預期回報。數值大於 1 代表期望值較佳。</div>
-                    </div>
-                </div>
-            </div>
-            ''', unsafe_allow_html=True)
+<div style="background: rgba(88, 166, 255, 0.05); padding: 15px; border-radius: 6px; border: 1px solid #30363D; margin-top: 15px;">
+    <h4 style="margin-top: 0; font-size: 0.9rem; color: #58A6FF; display: flex; align-items: center; gap: 8px;">
+        <span>💡 投資策略參考</span>
+    </h4>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+        <div>
+            <div style="color: #8B949E; font-size: 0.75rem;">潛在獲利空間</div>
+            <div style="color: #26a69a; font-weight: bold; font-size: 1.1rem;">+{((p95.iloc[-1]/current_price)-1)*100:.2f}%</div>
+            <div style="color: #8B949E; font-size: 0.7rem; margin-top: 4px;">若市場走勢強勁，理論上的獲利上限。</div>
+        </div>
+        <div>
+            <div style="color: #8B949E; font-size: 0.75rem;">潛在回檔風險</div>
+            <div style="color: #ef5350; font-weight: bold; font-size: 1.1rem;">{((p5.iloc[-1]/current_price)-1)*100:.2f}%</div>
+            <div style="color: #8B949E; font-size: 0.7rem; margin-top: 4px;">若市場轉弱，應注意的可能跌幅空間。</div>
+        </div>
+        <div>
+            <div style="color: #8B949E; font-size: 0.75rem;">風報比 (勝率權衡)</div>
+            <div style="color: #FFFFFF; font-weight: bold; font-size: 1.1rem;">{abs(((p95.iloc[-1]/current_price)-1) / ((p5.iloc[-1]/current_price)-1)):.2f}</div>
+            <div style="color: #8B949E; font-size: 0.7rem; margin-top: 4px;">每承擔 1 元風險可獲得的預期回報。數值大於 1 代表期望值較佳。</div>
+        </div>
+    </div>
+</div>
+''', unsafe_allow_html=True)
 
             st.markdown("---")
             st.subheader(t["backtest_header"])
@@ -1004,23 +980,45 @@ if ticker_input:
                 col_sig_list, col_sig_stats = st.columns([2, 1])
                 
                 with col_sig_list:
-                    st.markdown('<p style="color: #8B949E; font-size: 0.9rem; margin-bottom: 15px;">近期觸發信號歷史 (最新 10 筆)</p>', unsafe_allow_html=True)
-                    for s in latest_signals[:10]:
-                        st.markdown(f'''
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 10px; border-left: 4px solid {s['color']};">
-                            <div style="display: flex; align-items: center; gap: 15px;">
-                                <span style="font-size: 1.2rem;">{s['icon']}</span>
-                                <div>
-                                    <div style="color: {s['color']}; font-weight: bold; font-size: 1rem;">{s['type']}建議</div>
-                                    <div style="color: #8B949E; font-size: 0.75rem;">觸發日期: {s['date'].strftime('%Y-%m-%d')}</div>
-                                </div>
-                            </div>
-                            <div style="text-align: right;">
-                                <div style="color: #FFFFFF; font-weight: bold; font-size: 1.1rem;">${s['price']:.2f}</div>
-                                <div style="color: #8B949E; font-size: 0.75rem;">建議成交價</div>
-                            </div>
-                        </div>
-                        ''', unsafe_allow_html=True)
+                    st.markdown('<p style="color: #8B949E; font-size: 0.9rem; margin-bottom: 20px; font-weight: 500;">📅 近期觸發信號流水線 (最新 10 筆)</p>', unsafe_allow_html=True)
+                    
+                    # Start Timeline Container
+                    timeline_html = '<div style="position: relative; padding-left: 20px; border-left: 2px solid #30363D; margin-left: 10px;">'
+                    
+                    for i, s in enumerate(latest_signals[:10]):
+                        # Calculate relative days
+                        days_ago = (datetime.now().date() - s['date'].date()).days
+                        time_str = "今天" if days_ago == 0 else f"{days_ago} 天前"
+                        
+                        # Dot on the timeline
+                        timeline_html += f'''
+<div style="position: relative; margin-bottom: 25px;">
+    <div style="position: absolute; left: -27px; top: 15px; width: 12px; height: 12px; background: {s['color']}; border-radius: 50%; border: 3px solid #0D1117; box-shadow: 0 0 8px {s['color']}66; z-index: 2;"></div>
+    <div style="background: linear-gradient(90deg, {s['color']}0d 0%, rgba(255,255,255,0.02) 100%); border: 1px solid #30363D; border-radius: 12px; padding: 15px 20px; transition: all 0.3s ease; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <div style="background: {s['color']}22; width: 45px; height: 45px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; border: 1px solid {s['color']}44;">
+                {s['icon']}
+            </div>
+            <div>
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                    <span style="color: {s['color']}; font-weight: 800; font-size: 1.1rem; letter-spacing: 0.5px;">{s['type']}建議</span>
+                    <span style="background: #21262d; color: #8B949E; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #30363D;">{time_str}</span>
+                </div>
+                <div style="color: #8B949E; font-size: 0.8rem; display: flex; align-items: center; gap: 5px;">
+                    <span style="opacity: 0.7;">🕒</span> {s['date'].strftime('%Y-%m-%d')}
+                </div>
+            </div>
+        </div>
+        <div style="text-align: right;">
+            <div style="color: #FFFFFF; font-weight: 800; font-size: 1.3rem; margin-bottom: 2px;">${s['price']:.2f}</div>
+            <div style="color: #8B949E; font-size: 0.7rem; font-weight: 500;">建議成交參考價</div>
+        </div>
+    </div>
+</div>
+'''
+                    
+                    timeline_html += '</div>'
+                    st.markdown(timeline_html, unsafe_allow_html=True)
                 
                 with col_sig_stats:
                     st.markdown('<p style="color: #8B949E; font-size: 0.9rem; margin-bottom: 15px;">信號統計摘要</p>', unsafe_allow_html=True)
