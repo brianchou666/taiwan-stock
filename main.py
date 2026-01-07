@@ -688,13 +688,27 @@ if ticker_input:
             return atr
         atr_series = calculate_atr(data)
         
+        # --- AI Self-Evolution (Calculated early for signal filtering) ---
+        with st.spinner(f"AI 正在針對 {ticker_input} 進行自我進化優化..."):
+            best_weights, learn_acc = optimize_ai_weights(
+                data, rsi_series, ema20, ema50, bb_lower, bb_upper, vr_series, atr_series, (p_score, l_score, c_score)
+            )
+            
+            # Initial score for drift calculation and signal filtering
+            initial_ai_strat = get_ai_entry_strategy(
+                data, float(rsi_series.iloc[-1]), float(ema20.iloc[-1]), float(ema50.iloc[-1]), 
+                float(bb_lower.iloc[-1]), 50, (p_score, l_score, c_score), 
+                float(vr_series.iloc[-1]), float(atr_series.iloc[-1]), dynamic_weights=best_weights
+            )
+            ai_score = initial_ai_strat['score']
+
         # Calculate Buy/Sell Signals with AI + Multi-Factor Confirmation
         buy_signals = []
         sell_signals = []
         vol_ma5 = data['Volume'].rolling(window=5).mean()
         
-        # 獲取當前的 AI 評分作為過濾器 (從之前的分析結果中取得)
-        current_ai_score = ai_score if 'ai_score' in locals() else 50
+        # 獲取當前的 AI 評分作為過濾器
+        current_ai_score = ai_score
         
         for i in range(5, len(data)):
             # 判斷是否為「最新」訊號 (最近 3 天)，如果是則加入 AI 分數過濾
@@ -823,20 +837,8 @@ if ticker_input:
         
         st.markdown("---")
         
-        # --- AI Self-Evolution & Simulation (Calculated once for all tabs) ---
-        with st.spinner(f"AI 正在針對 {ticker_input} 進行自我進化優化..."):
-            best_weights, learn_acc = optimize_ai_weights(
-                data, rsi_series, ema20, ema50, bb_lower, bb_upper, vr_series, atr_series, (p_score, l_score, c_score)
-            )
-            
-            # Initial score for drift calculation
-            initial_ai_strat = get_ai_entry_strategy(
-                data, float(rsi_series.iloc[-1]), float(ema20.iloc[-1]), float(ema50.iloc[-1]), 
-                float(bb_lower.iloc[-1]), 50, (p_score, l_score, c_score), 
-                float(vr_series.iloc[-1]), float(atr_series.iloc[-1]), dynamic_weights=best_weights
-            )
-            
-            ai_score = initial_ai_strat['score']
+        # --- AI Simulation & Decision Calculations (Calculated once for all tabs) ---
+        with st.spinner(f"正在生成 {ticker_input} 未來模擬路徑與決策分析..."):
             atr = float(atr_series.iloc[-1])
             
             sim_df_full = run_advanced_mc_simulation(
