@@ -1,10 +1,14 @@
-import streamlit as st
-import yfinance as yf
 import pandas as pd
+import numpy as np
+import yfinance as yf
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
-import numpy as np
+import streamlit as st
+import time
+import feedparser
+import urllib.parse
+from scipy.stats import t as student_t
 st.set_page_config(page_title="股票分析", layout="wide", initial_sidebar_state="expanded")
 
 # Custom CSS for Institutional Look
@@ -464,40 +468,55 @@ def check_signal_performance(signal_date, suggested_price, signal_type, full_dat
     except:
         return "分析中", "#8B949E", 0
 
-def run_advanced_mc_simulation(current_price, data, ai_score, atr, days=30, simulations=1000):
+def run_advanced_mc_simulation(current_price, data, ai_score, atr, info=None, days=30, simulations=1000):
     """
-    Advanced Monte Carlo Simulation:
-    Integrates AI confidence, Trend bias, and ATR-adjusted volatility.
+    重構後的蒙地卡羅模擬引擎 v3.0：
+    - 採用 Student's t-分佈模擬肥尾效應
+    - 整合均值回歸 (EMA200) 機制
+    - 多因子漂移率與動態波動率調整
     """
     returns = data['Close'].pct_change().dropna()
     hist_vol = returns.std()
     
-    # 1. Calculate AI-Driven Drift
-    # If AI score > 60, we add a positive bias to the drift
-    # If AI score < 40, we add a negative bias
-    ai_bias = (ai_score - 50) / 5000  # Subtle daily bias
+    # 1. 計算多因子漂移率 (Drift)
+    # AI 信心偏誤
+    ai_bias = (ai_score - 50) / 4000 
     
-    # 2. Trend Drift (based on EMA)
+    # 趨勢偏誤 (EMA20 vs EMA50)
     ema20 = data['Close'].ewm(span=20).mean().iloc[-1]
     ema50 = data['Close'].ewm(span=50).mean().iloc[-1]
-    trend_bias = 0.001 if ema20 > ema50 else -0.001
+    ema200 = data['Close'].ewm(span=200).mean().iloc[-1]
+    trend_bias = 0.0015 if ema20 > ema50 else -0.0015
     
-    # Combined Drift
-    mu = returns.mean() + ai_bias + trend_bias
+    # 均值回歸項 (Mean Reversion to EMA200)
+    reversion_strength = 0.05 
+    dist_from_mean = (ema200 - current_price) / current_price
+    reversion_bias = dist_from_mean * reversion_strength / days
     
-    # 3. ATR-Adjusted Volatility
-    # Use ATR to scale the historical volatility if current volatility is high
-    atr_vol_adj = (atr / current_price) / 1.5 # Normalize ATR to a percentage
-    vol = max(hist_vol, atr_vol_adj)
+    # 法人目標價偏誤 (如有)
+    target_bias = 0
+    if info and info.get('targetMedianPrice'):
+        target_price = info.get('targetMedianPrice')
+        target_dist = (target_price - current_price) / current_price
+        target_bias = target_dist * 0.1 / days
+
+    mu = returns.mean() + ai_bias + trend_bias + reversion_bias + target_bias
     
-    # Simulation
+    # 2. 波動率調整 (Volatility)
+    atr_vol_adj = (atr / current_price) / 1.2
+    vol = max(hist_vol, atr_vol_adj) * 1.1 
+    
+    # 3. 模擬執行 (使用 Student's t-分佈)
+    df_student = 5 
     sim_results = np.zeros((days + 1, simulations))
     sim_results[0] = current_price
     
+    # 預先生成隨機數
+    random_shocks = student_t.rvs(df=df_student, loc=mu, scale=vol, size=(days, simulations))
+    
     for t in range(1, days + 1):
-        # Random shocks using standard normal distribution
-        shocks = np.random.normal(mu, vol, simulations)
-        sim_results[t] = sim_results[t-1] * (1 + shocks)
+        sim_results[t] = sim_results[t-1] * (1 + random_shocks[t-1])
+        vol *= np.random.uniform(0.99, 1.01)
         
     return pd.DataFrame(sim_results)
 
@@ -654,20 +673,33 @@ if ticker_input:
             return atr
         atr_series = calculate_atr(data)
         
-        # Calculate Buy/Sell Signals
+        # Calculate Buy/Sell Signals with Multi-Factor Confirmation
         buy_signals = []
         sell_signals = []
-        for i in range(1, len(data)):
-            # Buy: MACD Golden Cross OR RSI recovery from oversold
+        vol_ma5 = data['Volume'].rolling(window=5).mean()
+        
+        for i in range(5, len(data)):
+            # Buy Filters: 
+            # 1. MACD Golden Cross OR RSI recovery
+            # 2. Price > EMA 20 (Trend Confirmation)
+            # 3. Volume > 1.1x Vol MA5 (Strength Confirmation)
             macd_gold = macd_series.iloc[i] > signal_series.iloc[i] and macd_series.iloc[i-1] <= signal_series.iloc[i-1]
             rsi_buy = rsi_series.iloc[i] > 30 and rsi_series.iloc[i-1] <= 30
-            if macd_gold or rsi_buy:
+            trend_ok_buy = data['Close'].iloc[i] > ema20.iloc[i]
+            vol_ok = data['Volume'].iloc[i] > (vol_ma5.iloc[i] * 1.1)
+            
+            if (macd_gold or rsi_buy) and trend_ok_buy and vol_ok:
                 buy_signals.append(data.index[i])
             
-            # Sell: MACD Death Cross OR RSI pullback from overbought
+            # Sell Filters:
+            # 1. MACD Death Cross OR RSI pullback
+            # 2. Price < EMA 20 (Trend Confirmation)
+            # 3. Volume confirmation for weakness
             macd_death = macd_series.iloc[i] < signal_series.iloc[i] and macd_series.iloc[i-1] >= signal_series.iloc[i-1]
             rsi_sell = rsi_series.iloc[i] < 70 and rsi_series.iloc[i-1] >= 70
-            if macd_death or rsi_sell:
+            trend_ok_sell = data['Close'].iloc[i] < ema20.iloc[i]
+            
+            if (macd_death or rsi_sell) and trend_ok_sell:
                 sell_signals.append(data.index[i])
 
         # Prepare Signal Data for Global Use
@@ -715,8 +747,13 @@ if ticker_input:
                 })
             except: continue
         
-        # Sort by date descending
-        latest_signals = sorted(all_signals, key=lambda x: x['date'], reverse=True)
+        # Sort by date descending and filter by last 30 days
+        one_month_ago = datetime.now() - timedelta(days=30)
+        latest_signals = sorted(
+            [s for s in all_signals if s['date'] >= one_month_ago], 
+            key=lambda x: x['date'], 
+            reverse=True
+        )
         latest_sig = latest_signals[0] if latest_signals else None
 
         current_price = float(data['Close'].iloc[-1])
@@ -764,8 +801,16 @@ if ticker_input:
             atr = float(atr_series.iloc[-1])
             
             sim_df_full = run_advanced_mc_simulation(
-                current_price, data, ai_score, atr, days=30, simulations=1000
+                current_price, data, ai_score, atr, info=info, days=30, simulations=1000
             )
+            
+            # 將關鍵數據存入 session_state 以確保在不同分頁間切換時數據不會消失
+            st.session_state['sim_df_full'] = sim_df_full
+            st.session_state['ai_score'] = ai_score
+            st.session_state['atr'] = atr
+            st.session_state['current_price'] = current_price
+            st.session_state['ticker_input'] = ticker_input
+            st.session_state['prediction_dates'] = [data.index[-1] + timedelta(days=i) for i in range(len(sim_df_full))]
             
             # Extract 7-day stats for summary
             sim_df_7d = sim_df_full.iloc[0:8, :]
@@ -1146,209 +1191,135 @@ if ticker_input:
 
         with tab3:
             # Prediction Page: Enhanced Monte Carlo & Forecast
-            st.markdown(f'''
-<div class="data-card">
-    <h3 style="margin-top:0; color: #58A6FF; display: flex; align-items: center; gap: 10px;">
-        <span>🔮 未來路徑機率模擬</span>
-        <span style="font-size: 0.8rem; background: #238636; color: white; padding: 2px 8px; border-radius: 4px; font-weight: normal;">AI 增強版</span>
-    </h3>
-''', unsafe_allow_html=True)
+            st.subheader("🔮 未來路徑機率模擬 (AI 增強版)")
             
-            if 'sim_df_full' in locals() and sim_df_full is not None:
-                # 使用預先計算好的進階模擬數據
-                p05 = sim_df_full.quantile(0.05, axis=1)
-                p10 = sim_df_full.quantile(0.10, axis=1)
-                p50 = sim_df_full.quantile(0.50, axis=1)
-                p90 = sim_df_full.quantile(0.90, axis=1)
-                p95 = sim_df_full.quantile(0.95, axis=1)
+            # 從 session_state 讀取數據
+            sim_df_full = st.session_state.get('sim_df_full')
+            ai_score = st.session_state.get('ai_score')
+            atr = st.session_state.get('atr')
+            current_price = st.session_state.get('current_price')
+            ticker_input = st.session_state.get('ticker_input', '股票代碼')
+            prediction_dates = st.session_state.get('prediction_dates')
+
+            if sim_df_full is not None and prediction_dates is not None:
+                # 確保日期格式對 Plotly 友好
+                plot_dates = [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d) for d in prediction_dates]
                 
-                last_date = data.index[-1]
-                prediction_dates = [last_date + timedelta(days=i) for i in range(len(sim_df_full))]
+                # 取得分位數數據
+                p05 = sim_df_full.quantile(0.05, axis=1).values
+                p10 = sim_df_full.quantile(0.10, axis=1).values
+                p50 = sim_df_full.quantile(0.50, axis=1).values
+                p90 = sim_df_full.quantile(0.90, axis=1).values
+                p95 = sim_df_full.quantile(0.95, axis=1).values
                 
                 fig_mc = go.Figure()
                 
-                # 繪製信心區間
+                # 繪製信心區間 (90% 區間)
                 fig_mc.add_trace(go.Scatter(
-                    x=prediction_dates, y=p95,
+                    x=plot_dates, y=p95,
                     line=dict(width=0),
                     showlegend=False,
-                    name='95th'
+                    hoverinfo='skip'
                 ))
                 fig_mc.add_trace(go.Scatter(
-                    x=prediction_dates, y=p05,
+                    x=plot_dates, y=p05,
                     fill='tonexty',
-                    fillcolor='rgba(88, 166, 255, 0.05)',
+                    fillcolor='rgba(88, 166, 255, 0.1)',
                     line=dict(width=0),
                     name='90% 信心區間'
                 ))
                 
-                fig_mc.add_trace(go.Scatter(
-                    x=prediction_dates, y=p90,
-                    line=dict(width=0),
-                    showlegend=False,
-                    name='90th'
-                ))
-                fig_mc.add_trace(go.Scatter(
-                    x=prediction_dates, y=p10,
-                    fill='tonexty',
-                    fillcolor='rgba(88, 166, 255, 0.1)',
-                    line=dict(width=0),
-                    name='80% 信心區間'
-                ))
-                
                 # 繪製中位數路徑
                 fig_mc.add_trace(go.Scatter(
-                    x=prediction_dates, y=p50,
+                    x=plot_dates, y=p50,
                     line=dict(color='#58a6ff', width=3, dash='dash'),
                     name='預測中位數'
                 ))
                 
-                # 背景隨機路徑
-                for i in range(min(15, sim_df_full.shape[1])):
-                    fig_mc.add_trace(go.Scatter(
-                        x=prediction_dates, y=sim_df_full.iloc[:, i],
-                        line=dict(width=0.5, color='rgba(255, 255, 255, 0.1)'),
-                        showlegend=False
-                    ))
-                
                 fig_mc.update_layout(
-                    title=dict(text=f"<b>{ticker_input} 未來路徑機率分佈 (AI 偏向修正)</b>", font=dict(size=16, color="#C9D1D9")),
+                    title=dict(text=f"<b>{ticker_input} 未來 30 日路徑預測</b>", font=dict(size=16, color="#C9D1D9")),
                     xaxis_title="日期",
                     yaxis_title="價格",
                     template="plotly_dark",
                     hovermode="x unified",
-                    height=500,
+                    height=450,
                     margin=dict(l=20, r=20, t=60, b=20),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)'
                 )
                 
-                st.plotly_chart(fig_mc, use_container_width=True)
+                # 使用唯一的 Key 強制重新渲染，並確保主題一致
+                st.plotly_chart(fig_mc, use_container_width=True, key=f"mc_chart_{ticker_input}", theme="streamlit")
                 
-                # 模擬指標面板
-                st.markdown('<div style="margin-top: 20px;"></div>', unsafe_allow_html=True)
+                # 模擬指標面板 (緊湊佈局)
+                st.markdown('<div style="margin-top: -20px;"></div>', unsafe_allow_html=True)
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    final_median = p50.iloc[-1]
+                    final_median = p50[-1]
                     upside = (final_median / current_price - 1) * 100
                     st.metric("預期目標 (30D)", f"{final_median:.2f}", f"{upside:+.2f}%")
                 with col2:
-                    var_95 = (p05.iloc[-1] / current_price - 1) * 100
-                    st.metric("風險值 (VaR 95%)", f"{p05.iloc[-1]:.2f}", f"{var_95:.2f}%", delta_color="inverse")
+                    var_95 = (p05[-1] / current_price - 1) * 100
+                    st.metric("風險值 (VaR 95%)", f"{p05[-1]:.2f}", f"{var_95:.2f}%", delta_color="inverse")
                 with col3:
                     st.metric("AI 趨勢評分", f"{ai_score:.0f}/100", f"{'看多' if ai_score > 50 else '看空'}")
                 with col4:
                     st.metric("波動強度 (ATR)", f"{atr:.2f}", f"{atr/current_price*100:.1f}%", delta_color="off")
                     
-                st.info(f"💡 **模型升級說明**：此模擬已整合 **AI 信心評分** 與 **ATR 動態波動率**。信心區間越窄代表近期趨勢越穩定，區間越寬則代表市場分歧較大。")
+                st.info(f"💡 **模型升級說明**：此模擬已整合 **AI 信心評分** 與 **ATR 動態波動率**。")
                 
-                # 新增預測價格區間表格 (優化樣式)
+                # 表格部分...
                 st.markdown('<p style="color: #FFFFFF; font-size: 1.1rem; font-weight: bold; margin-top: 30px; margin-bottom: 15px; border-left: 4px solid #58A6FF; padding-left: 10px;">📅 未來預測價格區間 (關鍵節點)</p>', unsafe_allow_html=True)
-                
-                # 確保使用模擬開始時的實際價格作為基準
                 base_price = float(sim_df_full.iloc[0].mean())
                 st.write(f"📈 **模擬基準價格 (T+0):** `${base_price:.2f}`")
                 
-                # 建立自定義 HTML 表格
-                table_html = f"""
+                # 建立表格 HTML
+                table_html = """
                 <style>
-                    .mc-container {{
-                        margin: 20px 0;
-                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-                    }}
-                    .mc-table {{
-                        width: 100%;
-                        border-collapse: collapse;
-                        color: #FFFFFF;
-                        background: rgba(255, 255, 255, 0.02);
-                        border-radius: 8px;
-                        overflow: hidden;
-                    }}
-                    .mc-table thead {{
-                        background: rgba(88, 166, 255, 0.15);
-                        border-bottom: 2px solid #30363D;
-                    }}
-                    .mc-table th {{
-                        padding: 15px 12px;
-                        text-align: left;
-                        font-size: 0.85rem;
-                        text-transform: uppercase;
-                        letter-spacing: 0.05em;
-                    }}
-                    .mc-table td {{
-                        padding: 12px;
-                        font-size: 0.95rem;
-                        border-bottom: 1px solid #30363D;
-                    }}
-                    .mc-table tr:hover {{
-                        background: rgba(255, 255, 255, 0.08);
-                    }}
-                    .price-cell {{
-                        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-                        text-align: right;
-                    }}
-                    .change-cell {{
-                        text-align: right;
-                        font-weight: 700;
-                    }}
+                    .mc-table { width: 100%; border-collapse: collapse; color: #FFFFFF; background: rgba(255, 255, 255, 0.02); border-radius: 8px; overflow: hidden; }
+                    .mc-table thead { background: rgba(88, 166, 255, 0.15); border-bottom: 2px solid #30363D; }
+                    .mc-table th, .mc-table td { padding: 12px; text-align: left; }
+                    .price-cell { text-align: right; font-family: monospace; }
                 </style>
-                <div class="mc-container">
-                    <table class="mc-table">
-                        <thead>
-                            <tr>
-                                <th>預測節點</th>
-                                <th style="text-align: right; color: #FF7B72;">悲觀底部 (P05)</th>
-                                <th style="text-align: right; color: #FFFFFF;">中位預期 (P50)</th>
-                                <th style="text-align: right; color: #7EE787;">樂觀頂部 (P95)</th>
-                                <th style="text-align: right;">預期漲跌</th>
-                            </tr>
-                        </thead>
-                        <tbody>
+                <table class="mc-table">
+                    <thead>
+                        <tr>
+                            <th>預測節點</th>
+                            <th style="text-align: right; color: #FF7B72;">悲觀底部 (P05)</th>
+                            <th style="text-align: right; color: #FFFFFF;">中位預期 (P50)</th>
+                            <th style="text-align: right; color: #7EE787;">樂觀頂部 (P95)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
                 """
-                
-                key_days = [5, 10, 20, 30]
-                for day in key_days:
+                for day in [5, 10, 20, 30]:
                     if day < len(sim_df_full):
-                        row_data = sim_df_full.iloc[day]
-                        row_p05 = row_data.quantile(0.05)
-                        row_p50 = row_data.quantile(0.50)
-                        row_p95 = row_data.quantile(0.95)
-                        target_date = prediction_dates[day].strftime('%m/%d')
-                        
-                        change = ((row_p50 / base_price) - 1) * 100
-                        change_color = "#7EE787" if change >= 0 else "#FF7B72"
-                        
+                        row = sim_df_full.iloc[day]
                         table_html += f"""
-                            <tr>
-                                <td>T+{day} 天 ({target_date})</td>
-                                <td class="price-cell">${row_p05:.2f}</td>
-                                <td class="price-cell" style="font-weight: bold; color: #FFFFFF;">${row_p50:.2f}</td>
-                                <td class="price-cell">${row_p95:.2f}</td>
-                                <td class="change-cell" style="color: {change_color};">{change:+.2f}%</td>
-                            </tr>
+                        <tr>
+                            <td>T+{day} 天 ({prediction_dates[day].strftime('%m/%d')})</td>
+                            <td class="price-cell">${row.quantile(0.05):.2f}</td>
+                            <td class="price-cell" style="font-weight: bold;">${row.quantile(0.50):.2f}</td>
+                            <td class="price-cell">${row.quantile(0.95):.2f}</td>
+                        </tr>
                         """
-                
-                table_html += """
-                        </tbody>
-                    </table>
-                </div>
-                """
+                table_html += "</tbody></table>"
                 st.markdown(table_html, unsafe_allow_html=True)
             else:
                 st.warning("請先在「即時分析」分頁完成 AI 分析以生成預測數據。")
             
-            st.markdown('</div>', unsafe_allow_html=True)
-            
         with tab4:
             # Enhanced Signal Monitoring Page
-            st.markdown(f'<div class="data-card"><h3 style="margin-top:0; color: #FFD700;">🔔 交易信號監測報告</h3>', unsafe_allow_html=True)
+            st.markdown(f'<div class="data-card"><h3 style="margin-top:0; color: #FFD700;">🔔 交易信號監測報告 (近一個月)</h3>', unsafe_allow_html=True)
             
             if not latest_signals:
-                st.info("目前技術指標尚未偵測到明確的買賣信號。")
+                st.info("近一個月內技術指標尚未偵測到明確的買賣信號。")
             else:
                 col_sig_list, col_sig_stats = st.columns([2, 1])
                 
                 with col_sig_list:
-                    st.markdown('<p style="color: #8B949E; font-size: 0.9rem; margin-bottom: 20px; font-weight: 500;">📅 近期觸發信號流水線 (最新 10 筆)</p>', unsafe_allow_html=True)
+                    st.markdown('<p style="color: #8B949E; font-size: 0.9rem; margin-bottom: 20px; font-weight: 500;">📅 近期觸發信號流水線 (30天內)</p>', unsafe_allow_html=True)
                     
                     # Start Timeline Container
                     timeline_html = '<div style="position: relative; padding-left: 20px; border-left: 2px solid #30363D; margin-left: 10px;">'
@@ -1428,62 +1399,84 @@ if ticker_input:
             st.markdown('</div>', unsafe_allow_html=True)
 
         with tab5:
-            # News Page
-            st.markdown(f'<div class="data-card"><h3 style="margin-top:0; color: #58A6FF;">📰 {stock_name} 即時市場新聞</h3>', unsafe_allow_html=True)
+            # News Page - 使用原生組件避免佈局崩潰
+            st.subheader(f"📰 {stock_name} 即時市場新聞")
             
             try:
-                # 嘗試多種來源獲取新聞
                 news_list = []
                 
                 # 來源 1: Yahoo Finance
-                yf_news = stock.news
-                if yf_news:
-                    for item in yf_news:
-                        news_list.append({
-                            'title': item.get('title'),
-                            'link': item.get('link'),
-                            'publisher': item.get('publisher', 'Yahoo Finance'),
-                            'time': pd.to_datetime(item.get('providerPublishTime', 0), unit='s'),
-                            'tags': item.get('relatedTickers', [])
-                        })
+                try:
+                    yf_news = stock.news
+                    if yf_news:
+                        for item in yf_news:
+                            tags = item.get('relatedTickers', [])
+                            if tags is None: tags = []
+                            news_list.append({
+                                'title': item.get('title'),
+                                'link': item.get('link'),
+                                'publisher': item.get('publisher', 'Yahoo Finance'),
+                                'time': pd.to_datetime(item.get('providerPublishTime', 0), unit='s'),
+                                'tags': tags,
+                                'source': 'Yahoo'
+                            })
+                except Exception as yf_err:
+                    st.warning(f"Yahoo 新聞抓取暫時不可用: {yf_err}")
                 
-                # 來源 2: 如果 Yahoo 新聞太少，補充 Google News (模擬 RSS)
-                if len(news_list) < 3:
-                    import urllib.parse
-                    # 針對台股使用股票名稱搜尋
-                    search_query = urllib.parse.quote(f"{stock_name} 股票 新聞")
-                    google_news_url = f"https://news.google.com/rss/search?q={search_query}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
-                    
-                    # 提示使用者可以使用外部連結查看更多
-                    st.caption(f"💡 Yahoo 新聞來源有限，您可以點擊此處查看 [Google News: {stock_name}]({google_news_url.replace('/rss', '')})")
+                # 來源 2: Google News RSS (擴展來源)
+                if len(news_list) < 15:
+                    try:
+                        clean_name = stock_name.split('(')[0].strip()
+                        # 擴展搜尋關鍵字以包含更多大新聞源
+                        search_keywords = [f"{clean_name} 股票", f"{clean_name} 營收", f"{clean_name} 財經"]
+                        
+                        for query_text in search_keywords:
+                            encoded_query = urllib.parse.quote(query_text)
+                            rss_url = f"https://news.google.com/rss/search?q={encoded_query}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+                            
+                            feed = feedparser.parse(rss_url)
+                            for entry in feed.entries[:10]: # 每個關鍵字取前 10 條
+                                if not any(n['title'] == entry.title for n in news_list):
+                                    try:
+                                        published = pd.to_datetime(entry.published)
+                                    except:
+                                        published = datetime.now()
+                                        
+                                    news_list.append({
+                                        'title': entry.title,
+                                        'link': entry.link,
+                                        'publisher': entry.source.get('title', 'Google News') if hasattr(entry, 'source') else 'Google News',
+                                        'time': published,
+                                        'tags': ['新聞', '市場'],
+                                        'source': 'Google'
+                                    })
+                            if len(news_list) >= 30: break # 最多獲取 30 條
+                    except Exception as g_err:
+                        st.warning(f"Google 新聞抓取暫時不可用: {g_err}")
                 
                 if not news_list:
-                    st.info(f"目前 Yahoo Finance 尚無 {stock_name} 的相關即時新聞。")
-                    st.markdown(f"您可以查看 [Google 新聞搜尋結果](https://www.google.com/search?q={urllib.parse.quote(stock_name)}+新聞&tbm=nws)")
+                    st.info(f"目前尚無 {stock_name} 的相關即時新聞。")
                 else:
-                    # 按時間排序 (最新的在前)
                     news_list.sort(key=lambda x: x['time'], reverse=True)
                     
-                    for item in news_list[:15]: # 顯示最新 15 則
-                        time_str = item['time'].strftime('%Y-%m-%d %H:%M')
-                        st.markdown(f'''
-<div style="background: rgba(255, 255, 255, 0.03); padding: 15px; border-radius: 8px; border: 1px solid #30363D; margin-bottom: 12px; transition: all 0.3s ease;">
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-        <span style="color: #58A6FF; font-size: 0.75rem; font-weight: 600; background: rgba(88, 166, 255, 0.1); padding: 2px 8px; border-radius: 4px;">{item['publisher']}</span>
-        <span style="color: #8B949E; font-size: 0.7rem;">{time_str}</span>
-    </div>
-    <h4 style="margin: 0 0 10px 0; color: #FFFFFF; line-height: 1.4; font-size: 1rem;">
-        <a href="{item['link']}" target="_blank" style="text-decoration: none; color: inherit; transition: color 0.2s;" onmouseover="this.style.color='#58A6FF'" onmouseout="this.style.color='#FFFFFF'">{item['title']}</a>
-    </h4>
-    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-        {" ".join([f'<span style="background: rgba(255, 255, 255, 0.05); color: #8B949E; padding: 1px 6px; border-radius: 4px; font-size: 0.65rem;">#{tag}</span>' for tag in item['tags'][:3]])}
-    </div>
-</div>
-''', unsafe_allow_html=True)
+                    for item in news_list[:20]: 
+                        time_str = item['time'].strftime('%m-%d %H:%M')
+                        source_label = "Yahoo" if item['source'] == 'Yahoo' else "Google"
+                        
+                        # 簡化單條新聞 HTML，移除嵌套 div
+                        st.markdown(f"""
+                        <div style="padding: 12px; border-bottom: 1px solid #30363D; margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 5px;">
+                                <span style="color: #58A6FF; font-weight: bold;">[{source_label}] {item['publisher']}</span>
+                                <span style="color: #8B949E;">{time_str}</span>
+                            </div>
+                            <a href="{item['link']}" target="_blank" style="text-decoration: none; color: #FFFFFF; font-size: 1rem; font-weight: 500; line-height: 1.4;">
+                                {item['title']}
+                            </a>
+                        </div>
+                        """, unsafe_allow_html=True)
             except Exception as e:
-                st.error(f"無法載入新聞資訊: {e}")
-            
-            st.markdown('</div>', unsafe_allow_html=True)
+                st.error(f"新聞分頁發生錯誤: {e}")
 
         # Footer
         st.markdown("---")
