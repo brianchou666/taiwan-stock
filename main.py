@@ -703,104 +703,74 @@ if ticker_input:
             ai_score = initial_ai_strat['score']
 
         # Calculate Buy/Sell Signals with AI + Multi-Factor Confirmation
-        buy_signals = []
-        sell_signals = []
+        all_signals = []
         vol_ma5 = data['Volume'].rolling(window=5).mean()
+        target_median = info.get('targetMedianPrice', None)
         
-        # 獲取當前的 AI 評分作為過濾器
-        current_ai_score = ai_score
-        
-        for i in range(5, len(data)):
-            # 判斷是否為「最新」訊號 (最近 3 天)，如果是則加入 AI 分數過濾
-            is_recent = (len(data) - i) <= 3
-            ai_filter_buy = True
-            ai_filter_sell = True
+        # 遍歷數據生成信號
+        for i in range(20, len(data)): # 從 20 開始確保有足夠的 MA 數據
+            d = data.index[i]
             
-            if is_recent:
-                # 最新訊號需符合 AI 評分：買入 > 60, 賣出 < 40
-                ai_filter_buy = current_ai_score >= 60
-                ai_filter_sell = current_ai_score <= 40
-
-            # Buy Filters: 
-            # 1. MACD Golden Cross OR RSI recovery
-            # 2. Price > EMA 20 (Trend Confirmation)
-            # 3. Volume > 1.1x Vol MA5 (Strength Confirmation)
-            # 4. AI Filter (For recent signals)
+            # --- 基礎技術指標過濾 ---
             macd_gold = macd_series.iloc[i] > signal_series.iloc[i] and macd_series.iloc[i-1] <= signal_series.iloc[i-1]
             rsi_buy = rsi_series.iloc[i] > 30 and rsi_series.iloc[i-1] <= 30
             trend_ok_buy = data['Close'].iloc[i] > ema20.iloc[i]
             vol_ok = data['Volume'].iloc[i] > (vol_ma5.iloc[i] * 1.1)
             
-            if (macd_gold or rsi_buy) and trend_ok_buy and vol_ok and ai_filter_buy:
-                buy_signals.append(data.index[i])
-            
-            # Sell Filters:
-            # 1. MACD Death Cross OR RSI pullback
-            # 2. Price < EMA 20 (Trend Confirmation)
-            # 3. AI Filter (For recent signals)
             macd_death = macd_series.iloc[i] < signal_series.iloc[i] and macd_series.iloc[i-1] >= signal_series.iloc[i-1]
             rsi_sell = rsi_series.iloc[i] < 70 and rsi_series.iloc[i-1] >= 70
             trend_ok_sell = data['Close'].iloc[i] < ema20.iloc[i]
-            
-            if (macd_death or rsi_sell) and trend_ok_sell and ai_filter_sell:
-                sell_signals.append(data.index[i])
 
-        # Prepare Signal Data for Global Use
-        all_signals = []
-        target_median = info.get('targetMedianPrice', None)
-        
-        for d in buy_signals:
-            try:
-                idx = data.index.get_loc(d)
-                h_rsi = float(rsi_series.iloc[idx])
-                h_ema20 = float(ema20.iloc[idx])
-                h_ema50 = float(ema50.iloc[idx])
-                h_bb_lower = float(bb_lower.iloc[idx])
-                h_vr = float(vr_series.iloc[idx])
-                h_atr = float(atr_series.iloc[idx])
-                
-                # Historical AI Entry Strategy with full parameters
-                h_ai = get_ai_entry_strategy(data.iloc[:idx+1], h_rsi, h_ema20, h_ema50, h_bb_lower, 55, (p_score, l_score, c_score), h_vr, h_atr)
-                perf_status, perf_color, perf_pct = check_signal_performance(d, h_ai['price'], "買入", data)
-                
-                # 判斷是否通過 AI 共振過濾 (使用當時的 AI 分數)
-                h_score = h_ai.get('score', 0)
-                is_ai_verified = h_score >= 60
-                
-                price_val = float(data.loc[d, 'Close'].iloc[0] if isinstance(data.loc[d, 'Close'], pd.Series) else data.loc[d, 'Close'])
-                all_signals.append({
-                    "date": d, "type": "買入", "price": price_val, "color": "#26a69a", "icon": "🔼",
-                    "ai_price": h_ai['price'], "ai_action": h_ai['action'], "stop_loss": h_ai['stop_loss'],
-                    "perf_status": perf_status, "perf_color": perf_color, "perf_pct": perf_pct,
-                    "ai_verified": is_ai_verified, "ai_score": h_score
-                })
-            except: continue
+            # --- 買入信號處理 ---
+            if (macd_gold or rsi_buy) and trend_ok_buy and vol_ok:
+                try:
+                    h_rsi = float(rsi_series.iloc[i])
+                    h_ema20 = float(ema20.iloc[i])
+                    h_ema50 = float(ema50.iloc[i])
+                    h_bb_lower = float(bb_lower.iloc[i])
+                    h_vr = float(vr_series.iloc[i])
+                    h_atr = float(atr_series.iloc[i])
+                    
+                    # 計算該時間點的 AI 買入評分
+                    h_ai = get_ai_entry_strategy(data.iloc[:i+1], h_rsi, h_ema20, h_ema50, h_bb_lower, 55, (p_score, l_score, c_score), h_vr, h_atr, dynamic_weights=best_weights)
+                    h_score = h_ai.get('score', 0)
+                    
+                    # 績效追蹤
+                    perf_status, perf_color, perf_pct = check_signal_performance(d, h_ai['price'], "買入", data)
+                    
+                    price_val = float(data['Close'].iloc[i])
+                    all_signals.append({
+                        "date": d, "type": "買入", "price": price_val, "color": "#26a69a", "icon": "🔼",
+                        "ai_price": h_ai['price'], "ai_action": h_ai['action'], "stop_loss": h_ai['stop_loss'],
+                        "perf_status": perf_status, "perf_color": perf_color, "perf_pct": perf_pct,
+                        "ai_verified": h_score >= 60, "ai_score": h_score
+                    })
+                except: continue
 
-        for d in sell_signals:
-            try:
-                idx = data.index.get_loc(d)
-                h_rsi = float(rsi_series.iloc[idx])
-                h_bb_upper = float(bb_upper.iloc[idx])
-                h_atr = float(atr_series.iloc[idx])
-                
-                # Historical AI Exit Strategy with full parameters
-                h_ai = get_ai_exit_strategy(data.iloc[:idx+1], h_rsi, h_bb_upper, target_median, h_atr)
-                perf_status, perf_color, perf_pct = check_signal_performance(d, h_ai['price'], "賣出", data)
-                
-                # 判斷是否通過 AI 共振過濾 (使用當時的 AI 分數)
-                h_score = h_ai.get('score', 0)
-                is_ai_verified = h_score >= 60 # 對於賣出訊號，分數越高代表越建議賣出
-                
-                price_val = float(data.loc[d, 'Close'].iloc[0] if isinstance(data.loc[d, 'Close'], pd.Series) else data.loc[d, 'Close'])
-                all_signals.append({
-                    "date": d, "type": "賣出", "price": price_val, "color": "#ef5350", "icon": "🔽",
-                    "ai_price": h_ai['price'], "ai_action": h_ai['action'], "trailing_stop": h_ai.get('trailing_stop', 0),
-                    "perf_status": perf_status, "perf_color": perf_color, "perf_pct": perf_pct,
-                    "ai_verified": is_ai_verified, "ai_score": h_score
-                })
-            except: continue
+            # --- 賣出信號處理 ---
+            if (macd_death or rsi_sell) and trend_ok_sell:
+                try:
+                    h_rsi = float(rsi_series.iloc[i])
+                    h_bb_upper = float(bb_upper.iloc[i])
+                    h_atr = float(atr_series.iloc[i])
+                    
+                    # 計算該時間點的 AI 賣出評分
+                    h_ai = get_ai_exit_strategy(data.iloc[:i+1], h_rsi, h_bb_upper, target_median, h_atr)
+                    h_score = h_ai.get('score', 0)
+                    
+                    # 績效追蹤
+                    perf_status, perf_color, perf_pct = check_signal_performance(d, h_ai['price'], "賣出", data)
+                    
+                    price_val = float(data['Close'].iloc[i])
+                    all_signals.append({
+                        "date": d, "type": "賣出", "price": price_val, "color": "#ef5350", "icon": "🔽",
+                        "ai_price": h_ai['price'], "ai_action": h_ai['action'], "trailing_stop": h_ai.get('trailing_stop', 0),
+                        "perf_status": perf_status, "perf_color": perf_color, "perf_pct": perf_pct,
+                        "ai_verified": h_score >= 60, "ai_score": h_score
+                    })
+                except: continue
         
-        # Sort by date descending and filter by last 30 days
+        # 過濾出最近 30 天的信號用於 UI 顯示
         one_month_ago = datetime.now() - timedelta(days=30)
         latest_signals = sorted(
             [s for s in all_signals if s['date'] >= one_month_ago], 
@@ -808,6 +778,10 @@ if ticker_input:
             reverse=True
         )
         latest_sig = latest_signals[0] if latest_signals else None
+
+        # 為舊有函數提供相容性
+        buy_signals = [s['date'] for s in all_signals if s['type'] == "買入"]
+        sell_signals = [s['date'] for s in all_signals if s['type'] == "賣出"]
 
         current_price = float(data['Close'].iloc[-1])
         
