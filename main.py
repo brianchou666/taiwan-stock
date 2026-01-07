@@ -149,6 +149,7 @@ t = {
     "tab_tech": "📊 技術指標",
     "tab_predict": "🔮 趨勢預測",
     "tab_signals": "🔔 交易信號",
+    "tab_news": "📰 市場新聞",
     "price_action": "價格走勢",
     "key_stats": "關鍵統計",
     "no_data": "查無此代碼，請重新輸入 (如 2330.TW)。",
@@ -307,42 +308,236 @@ def calculate_health_scores(info):
     
     return p_score, l_score, c_score
 
-def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, win_prob):
-    """Generates AI-driven entry strategy and price."""
+def optimize_ai_weights(data, rsi_series, ema20, ema50, bb_lower, bb_upper, vr_series, atr_series, health_scores):
+    """
+    AI Self-Evolution Engine:
+    Backtests multiple weight combinations on historical data to find the optimal
+    strategy for the specific stock.
+    """
+    # Define weight candidates (Tech, Fund, Vol)
+    candidates = [
+        (0.6, 0.2, 0.2), (0.4, 0.4, 0.2), (0.4, 0.2, 0.4),
+        (0.3, 0.4, 0.3), (0.5, 0.3, 0.2), (0.2, 0.4, 0.4),
+        (0.33, 0.33, 0.34)
+    ]
+    
+    best_weights = (0.4, 0.3, 0.3)
+    max_accuracy = -1.0
+    
+    # We only look at the last 60 days for learning to keep it relevant
+    learning_period = 60
+    if len(data) < learning_period:
+        return best_weights, 0
+        
+    test_data = data.iloc[-learning_period:]
+    
+    # Simple backtest of candidates
+    for w_tech, w_fund, w_vol in candidates:
+        correct_preds = 0
+        total_signals = 0
+        
+        # Check potential signals in the last 40 days (leaving 20 days for performance check)
+        for i in range(len(test_data) - 20):
+            idx = i
+            # Simulate a simplified entry signal
+            # RSI low + Close near BB lower
+            curr_rsi = rsi_series.iloc[-(learning_period-i)]
+            curr_close = test_data['Close'].iloc[i]
+            curr_bb_l = bb_lower.iloc[-(learning_period-i)]
+            
+            if curr_rsi < 40 or curr_close < curr_bb_l * 1.02:
+                total_signals += 1
+                # Check if price went up in next 5 days
+                future_max = test_data['High'].iloc[i+1:i+6].max()
+                if future_max > curr_close * 1.03: # 3% gain target
+                    correct_preds += 1
+        
+        accuracy = correct_preds / total_signals if total_signals > 0 else 0
+        if accuracy > max_accuracy:
+            max_accuracy = accuracy
+            best_weights = (w_tech, w_fund, w_vol)
+            
+    return best_weights, max_accuracy
+
+def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, win_prob, health_scores, vr, atr, dynamic_weights=None):
+    """Generates AI-driven entry strategy and price using multi-factor scoring."""
     current_price = float(data['Close'].iloc[-1])
+    p_score, l_score, c_score = health_scores
     
-    # Logic:
-    # 1. If Strong Uptrend (EMA20 > EMA50) & RSI not overbought: Entry near EMA20
-    # 2. If Downtrend: Entry near BB Lower or 5% below current
-    # 3. If High Win Prob: Aggressive entry
+    # Use dynamic weights if provided, else default
+    w_tech, w_fund, w_vol = dynamic_weights if dynamic_weights else (0.4, 0.3, 0.3)
     
-    if ema20 > ema50:
-        if rsi < 60:
-            suggested_price = max(ema20, current_price * 0.99)
-            confidence = "高"
-            action = "拉回買進"
-            desc = "趨勢偏多且未過熱，建議於均線附近分批佈局。"
-            color = "#3FB950"
-        else:
-            suggested_price = ema20
-            confidence = "中"
-            action = "等待回檔"
-            desc = "短期漲幅已大，建議等候回測 20 日線再行進場。"
-            color = "#D29922"
+    # 1. Technical Score (0-100)
+    t_raw = 0
+    if ema20 > ema50: t_raw += 30
+    if rsi < 40: t_raw += 40
+    elif rsi < 60: t_raw += 20
+    if current_price < bb_lower * 1.02: t_raw += 30
+    
+    # 2. Fundamental Score (0-100)
+    f_raw = (p_score + l_score + c_score) / 30 * 100
+    
+    # 3. Volume/Momentum Score (0-100)
+    v_raw = 0
+    if vr > 150: v_raw += 60
+    elif vr > 100: v_raw += 30
+    if win_prob > 60: v_raw += 40
+    
+    # Weighted Total Score (Normalized to 0-100)
+    total_score = (t_raw * w_tech) + (f_raw * w_fund) + (v_raw * w_vol)
+    
+    # Decision Logic based on Total Score
+    if total_score > 75:
+        suggested_price = max(ema20, current_price * 0.99)
+        confidence = f"極高 ({total_score:.0f}%)"
+        action = "強力買進"
+        desc = "技術、基本、量能全面看多，建議積極佈局。"
+        color = "#3FB950"
+    elif total_score > 55:
+        suggested_price = ema20
+        confidence = f"高 ({total_score:.0f}%)"
+        action = "分批買進"
+        desc = "趨勢偏多且體質健全，可於支撐位分批承接。"
+        color = "#26a69a"
+    elif total_score > 40:
+        suggested_price = bb_lower
+        confidence = f"中 ({total_score:.0f}%)"
+        action = "等待回檔"
+        desc = "多空力道均衡，建議等候回測關鍵支撐。"
+        color = "#D29922"
     else:
-        suggested_price = bb_lower if bb_lower < current_price else current_price * 0.95
-        confidence = "低"
+        suggested_price = bb_lower * 0.95
+        confidence = f"低 ({total_score:.0f}%)"
         action = "保守觀望"
-        desc = "目前趨勢偏弱，建議等候布林下軌或支撐確認。"
+        desc = "目前條件不佳，建議保持現金部位，靜待趨勢扭轉。"
         color = "#f85149"
         
-    # Adjust by Win Probability
-    if win_prob > 60:
+    # Add Stop Loss suggestion using ATR
+    stop_loss = current_price - (2 * atr)
+    
+    return {
+        "price": suggested_price,
+        "stop_loss": stop_loss,
+        "confidence": confidence,
+        "action": action,
+        "desc": desc,
+        "color": color,
+        "score": total_score
+    }
+
+def check_signal_performance(signal_date, suggested_price, signal_type, full_data):
+    """Checks how the signal performed after the trigger date."""
+    try:
+        # Get data after the signal date (up to 5 days)
+        idx = full_data.index.get_loc(signal_date)
+        after_data = full_data.iloc[idx+1 : idx+6]
+        
+        if len(after_data) == 0:
+            return "觀察中", "#8B949E", 0
+            
+        current_actual = float(full_data['Close'].iloc[-1])
+        
+        if signal_type == "買入":
+            # Did it reach the suggested entry price?
+            reached_entry = (after_data['Low'] <= suggested_price).any()
+            # Is it currently profitable relative to suggested price?
+            profit_pct = (current_actual - suggested_price) / suggested_price * 100
+            
+            if reached_entry and profit_pct > 2:
+                return "精準達標", "#3FB950", profit_pct
+            elif reached_entry:
+                return "已進場", "#D29922", profit_pct
+            else:
+                return "未觸及", "#8B949E", 0
+        else:
+            # Sell signal
+            reached_exit = (after_data['High'] >= suggested_price).any()
+            # Is price lower than exit price? (Meaning it was a good time to sell)
+            save_pct = (suggested_price - current_actual) / suggested_price * 100
+            
+            if reached_exit and save_pct > 0:
+                return "避險成功", "#3FB950", save_pct
+            elif reached_exit:
+                return "已出場", "#D29922", save_pct
+            else:
+                return "未觸及", "#8B949E", 0
+    except:
+        return "分析中", "#8B949E", 0
+
+def run_advanced_mc_simulation(current_price, data, ai_score, atr, days=30, simulations=1000):
+    """
+    Advanced Monte Carlo Simulation:
+    Integrates AI confidence, Trend bias, and ATR-adjusted volatility.
+    """
+    returns = data['Close'].pct_change().dropna()
+    hist_vol = returns.std()
+    
+    # 1. Calculate AI-Driven Drift
+    # If AI score > 60, we add a positive bias to the drift
+    # If AI score < 40, we add a negative bias
+    ai_bias = (ai_score - 50) / 5000  # Subtle daily bias
+    
+    # 2. Trend Drift (based on EMA)
+    ema20 = data['Close'].ewm(span=20).mean().iloc[-1]
+    ema50 = data['Close'].ewm(span=50).mean().iloc[-1]
+    trend_bias = 0.001 if ema20 > ema50 else -0.001
+    
+    # Combined Drift
+    mu = returns.mean() + ai_bias + trend_bias
+    
+    # 3. ATR-Adjusted Volatility
+    # Use ATR to scale the historical volatility if current volatility is high
+    atr_vol_adj = (atr / current_price) / 1.5 # Normalize ATR to a percentage
+    vol = max(hist_vol, atr_vol_adj)
+    
+    # Simulation
+    sim_results = np.zeros((days + 1, simulations))
+    sim_results[0] = current_price
+    
+    for t in range(1, days + 1):
+        # Random shocks using standard normal distribution
+        shocks = np.random.normal(mu, vol, simulations)
+        sim_results[t] = sim_results[t-1] * (1 + shocks)
+        
+    return pd.DataFrame(sim_results)
+
+def get_ai_exit_strategy(data, rsi, bb_upper, target_median, atr):
+    """Generates AI-driven exit strategy and price with dynamic stop-profit."""
+    current_price = float(data['Close'].iloc[-1])
+    base_target = target_median if target_median and target_median > current_price else bb_upper
+    
+    # Calculate Dynamic Stop Profit (Trailing Stop)
+    # Using 1.5 * ATR as a trailing buffer
+    trailing_stop = current_price - (1.5 * atr)
+    
+    if rsi > 80:
+        suggested_price = current_price
         confidence = "極高"
-        desc = "模擬勝率極佳，可考慮適度提高進場位階。"
+        action = "立即獲利"
+        desc = "指標嚴重噴出且超買，建議現價清倉以確保利潤。"
+        color = "#f85149"
+    elif rsi > 70:
+        suggested_price = base_target
+        confidence = "高"
+        action = "分批獲利"
+        desc = "進入高檔超買區，建議於目標價分批獲利了結。"
+        color = "#ef5350"
+    elif rsi > 60:
+        suggested_price = max(base_target, current_price * 1.05)
+        confidence = "中"
+        action = "部分減碼"
+        desc = "股價動能稍緩，建議於壓力區附近減持部分部位。"
+        color = "#D29922"
+    else:
+        suggested_price = max(base_target, current_price * 1.1)
+        confidence = "一般"
+        action = "續抱觀察"
+        desc = "趨勢尚未轉弱，建議守住移動停利點繼續持有。"
+        color = "#58A6FF"
         
     return {
         "price": suggested_price,
+        "trailing_stop": trailing_stop,
         "confidence": confidence,
         "action": action,
         "desc": desc,
@@ -368,6 +563,10 @@ with st.sidebar:
     st.markdown("---")
     period = st.selectbox(t["period_label"], options=["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=3)
     interval = st.selectbox(t["interval_label"], options=["1d", "1wk", "1mo"], index=0)
+
+    st.markdown("---")
+    st.markdown(f'<p style="color: #8B949E; font-size: 0.8rem; font-weight: 600;">交易設定</p>', unsafe_allow_html=True)
+    investment_budget = st.sidebar.number_input("單筆投資預算", min_value=1000, value=100000, step=10000, help="設定您預計單筆投入的金額，系統將據此計算建議股數。")
 
     st.markdown("---")
     st.markdown(f'<p style="color: #8B949E; font-size: 0.8rem; font-weight: 600;">{t["prediction_header"]}</p>', unsafe_allow_html=True)
@@ -427,6 +626,33 @@ if ticker_input:
         ema20 = data['Close'].ewm(span=20, adjust=False).mean()
         ema50 = data['Close'].ewm(span=50, adjust=False).mean()
         ema200 = data['Close'].ewm(span=200, adjust=False).mean()
+
+        # KD Indicator
+        low_9 = data['Low'].rolling(window=9).min()
+        high_9 = data['High'].rolling(window=9).max()
+        rsv = (data['Close'] - low_9) / (high_9 - low_9) * 100
+        k_series = rsv.ewm(com=2, adjust=False).mean()
+        d_series = k_series.ewm(com=2, adjust=False).mean()
+
+        # VR (Volume Ratio)
+        def calculate_vr(df, n=26):
+            diff = df['Close'].diff()
+            up_vol = df['Volume'].where(diff > 0, 0).rolling(window=n).sum()
+            down_vol = df['Volume'].where(diff < 0, 0).rolling(window=n).sum()
+            flat_vol = df['Volume'].where(diff == 0, 0).rolling(window=n).sum()
+            vr = (up_vol + 0.5 * flat_vol) / (down_vol + 0.5 * flat_vol) * 100
+            return vr
+        vr_series = calculate_vr(data)
+        
+        # ATR (Average True Range) for Volatility
+        def calculate_atr(df, n=14):
+            high_low = df['High'] - df['Low']
+            high_cp = abs(df['High'] - df['Close'].shift())
+            low_cp = abs(df['Low'] - df['Close'].shift())
+            tr = pd.concat([high_low, high_cp, low_cp], axis=1).max(axis=1)
+            atr = tr.rolling(window=n).mean()
+            return atr
+        atr_series = calculate_atr(data)
         
         # Calculate Buy/Sell Signals
         buy_signals = []
@@ -446,12 +672,48 @@ if ticker_input:
 
         # Prepare Signal Data for Global Use
         all_signals = []
+        target_median = info.get('targetMedianPrice', None)
+        
         for d in buy_signals:
-            price_val = float(data.loc[d, 'Close'].iloc[0] if isinstance(data.loc[d, 'Close'], pd.Series) else data.loc[d, 'Close'])
-            all_signals.append({"date": d, "type": "買入", "price": price_val, "color": "#26a69a", "icon": "🔼"})
+            try:
+                idx = data.index.get_loc(d)
+                h_rsi = float(rsi_series.iloc[idx])
+                h_ema20 = float(ema20.iloc[idx])
+                h_ema50 = float(ema50.iloc[idx])
+                h_bb_lower = float(bb_lower.iloc[idx])
+                h_vr = float(vr_series.iloc[idx])
+                h_atr = float(atr_series.iloc[idx])
+                
+                # Historical AI Entry Strategy with full parameters
+                h_ai = get_ai_entry_strategy(data.iloc[:idx+1], h_rsi, h_ema20, h_ema50, h_bb_lower, 55, (p_score, l_score, c_score), h_vr, h_atr)
+                perf_status, perf_color, perf_pct = check_signal_performance(d, h_ai['price'], "買入", data)
+                
+                price_val = float(data.loc[d, 'Close'].iloc[0] if isinstance(data.loc[d, 'Close'], pd.Series) else data.loc[d, 'Close'])
+                all_signals.append({
+                    "date": d, "type": "買入", "price": price_val, "color": "#26a69a", "icon": "🔼",
+                    "ai_price": h_ai['price'], "ai_action": h_ai['action'], "stop_loss": h_ai['stop_loss'],
+                    "perf_status": perf_status, "perf_color": perf_color, "perf_pct": perf_pct
+                })
+            except: continue
+
         for d in sell_signals:
-            price_val = float(data.loc[d, 'Close'].iloc[0] if isinstance(data.loc[d, 'Close'], pd.Series) else data.loc[d, 'Close'])
-            all_signals.append({"date": d, "type": "賣出", "price": price_val, "color": "#ef5350", "icon": "🔽"})
+            try:
+                idx = data.index.get_loc(d)
+                h_rsi = float(rsi_series.iloc[idx])
+                h_bb_upper = float(bb_upper.iloc[idx])
+                h_atr = float(atr_series.iloc[idx])
+                
+                # Historical AI Exit Strategy with full parameters
+                h_ai = get_ai_exit_strategy(data.iloc[:idx+1], h_rsi, h_bb_upper, target_median, h_atr)
+                perf_status, perf_color, perf_pct = check_signal_performance(d, h_ai['price'], "賣出", data)
+                
+                price_val = float(data.loc[d, 'Close'].iloc[0] if isinstance(data.loc[d, 'Close'], pd.Series) else data.loc[d, 'Close'])
+                all_signals.append({
+                    "date": d, "type": "賣出", "price": price_val, "color": "#ef5350", "icon": "🔽",
+                    "ai_price": h_ai['price'], "ai_action": h_ai['action'], "trailing_stop": h_ai.get('trailing_stop', 0),
+                    "perf_status": perf_status, "perf_color": perf_color, "perf_pct": perf_pct
+                })
+            except: continue
         
         # Sort by date descending
         latest_signals = sorted(all_signals, key=lambda x: x['date'], reverse=True)
@@ -485,66 +747,112 @@ if ticker_input:
         
         st.markdown("---")
         
-        tab1, tab2, tab3, tab4 = st.tabs([t["tab_overview"], t["tab_tech"], t["tab_predict"], t["tab_signals"]])
+        # --- AI Self-Evolution & Simulation (Calculated once for all tabs) ---
+        with st.spinner(f"AI 正在針對 {ticker_input} 進行自我進化優化..."):
+            best_weights, learn_acc = optimize_ai_weights(
+                data, rsi_series, ema20, ema50, bb_lower, bb_upper, vr_series, atr_series, (p_score, l_score, c_score)
+            )
+            
+            # Initial score for drift calculation
+            initial_ai_strat = get_ai_entry_strategy(
+                data, float(rsi_series.iloc[-1]), float(ema20.iloc[-1]), float(ema50.iloc[-1]), 
+                float(bb_lower.iloc[-1]), 50, (p_score, l_score, c_score), 
+                float(vr_series.iloc[-1]), float(atr_series.iloc[-1]), dynamic_weights=best_weights
+            )
+            
+            ai_score = initial_ai_strat['score']
+            atr = float(atr_series.iloc[-1])
+            
+            sim_df_full = run_advanced_mc_simulation(
+                current_price, data, ai_score, atr, days=30, simulations=1000
+            )
+            
+            # Extract 7-day stats for summary
+            sim_df_7d = sim_df_full.iloc[0:8, :]
+            median_sim_7d = sim_df_7d.median(axis=1).iloc[-1]
+            win_prob_7d = (sim_df_7d.iloc[-1, :] > current_price).mean() * 100
+            
+            # AI Smart Entry/Exit Calculation
+            ai_strat = get_ai_entry_strategy(
+                data, float(rsi_series.iloc[-1]), float(ema20.iloc[-1]), float(ema50.iloc[-1]), 
+                float(bb_lower.iloc[-1]), win_prob_7d, (p_score, l_score, c_score), 
+                float(vr_series.iloc[-1]), float(atr_series.iloc[-1]), dynamic_weights=best_weights
+            )
+            
+            target_median = info.get('targetMedianPrice', None)
+            ai_exit = get_ai_exit_strategy(
+                data, float(rsi_series.iloc[-1]), float(bb_upper.iloc[-1]), 
+                target_median, float(atr_series.iloc[-1])
+            )
+
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([t["tab_overview"], t["tab_tech"], t["tab_predict"], t["tab_signals"], t["tab_news"]])
 
         with tab1:
             # 1. Quick Recommendation & Prediction Summary
             res = get_expert_insight(ticker_input, current_price, float(rsi_series.iloc[-1]), sig_text, float(macd_series.iloc[-1]), float(signal_series.iloc[-1]), buy_signals, sell_signals, data.index[-1])
             
-            # Prediction Calculations (Moved here for quick summary)
-            returns = data['Close'].pct_change().dropna()
-            avg_ret, vol = returns.mean(), returns.std()
-            num_simulations = 1000
-            sim_df = pd.DataFrame()
-            for i in range(num_simulations):
-                prices = [current_price]
-                for _ in range(7): # Use 7 days for quick summary
-                    prices.append(prices[-1] * (1 + np.random.normal(avg_ret, vol)))
-                sim_df[i] = prices
-            median_sim_7d = sim_df.median(axis=1).iloc[-1]
-            win_prob_7d = (sim_df.iloc[-1, :] > current_price).mean() * 100
+            # UI display for Evolution Status
+            st.markdown(f'''
+                <div style="background: rgba(56, 139, 253, 0.1); padding: 10px; border-radius: 10px; border: 1px solid #388bfd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 1.2rem;">🧬</span>
+                        <div>
+                            <div style="color: #388bfd; font-size: 0.8rem; font-weight: bold;">AI 自我進化狀態：已優化</div>
+                            <div style="color: #8B949E; font-size: 0.7rem;">針對 {ticker_input} 尋獲最佳權重比例</div>
+                        </div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="color: #E0E0E0; font-size: 0.7rem;">技術 {best_weights[0]*100:.0f}% | 基本 {best_weights[1]*100:.0f}% | 量能 {best_weights[2]*100:.0f}%</div>
+                        <div style="color: #3FB950; font-size: 0.75rem; font-weight: bold;">歷史學習準確率: {learn_acc*100:.1f}%</div>
+                    </div>
+                </div>
+            ''', unsafe_allow_html=True)
 
-            # AI Smart Entry Calculation
-            ai_strat = get_ai_entry_strategy(
-                data, 
-                float(rsi_series.iloc[-1]), 
-                float(ema20.iloc[-1]), 
-                float(ema50.iloc[-1]), 
-                float(bb_lower.iloc[-1]), 
-                win_prob_7d
-            )
-
-            rec_col1, rec_col2, rec_col3 = st.columns([1, 1, 1])
+            rec_col1, rec_col2, rec_col3, rec_col4 = st.columns([1, 1, 1, 1])
             with rec_col1:
                 st.markdown(f'''
-                    <div style="background: rgba(88, 166, 255, 0.1); padding: 15px; border-radius: 8px; border-left: 5px solid {res['action']['color']}; height: 110px;">
-                        <div style="color: #8B949E; font-size: 0.75rem; margin-bottom: 5px;">當前操作建議</div>
-                        <div style="font-size: 1.4rem; font-weight: 800; color: {res['action']['color']};">{res['action']['status']}</div>
-                        <div style="color: #E0E0E0; font-size: 0.75rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">{res['action']['desc']}</div>
+                    <div style="background: rgba(88, 166, 255, 0.1); padding: 12px; border-radius: 8px; border-left: 5px solid {res['action']['color']}; height: 135px;">
+                        <div style="color: #8B949E; font-size: 0.7rem; margin-bottom: 5px;">當前操作建議</div>
+                        <div style="font-size: 1.2rem; font-weight: 800; color: {res['action']['color']};">{res['action']['status']}</div>
+                        <div style="color: #E0E0E0; font-size: 0.7rem; line-height: 1.2;">{res['action']['desc']}</div>
                     </div>
                 ''', unsafe_allow_html=True)
             
             with rec_col2:
                 st.markdown(f'''
-                    <div style="background: rgba(63, 185, 80, 0.05); padding: 15px; border-radius: 8px; border-left: 5px solid {ai_strat['color']}; height: 110px; border: 1px solid {ai_strat['color']}33;">
-                        <div style="color: #8B949E; font-size: 0.75rem; margin-bottom: 5px;">AI 建議買點 (信心:{ai_strat['confidence']})</div>
+                    <div style="background: rgba(63, 185, 80, 0.05); padding: 12px; border-radius: 8px; border-left: 5px solid {ai_strat['color']}; height: 135px; border: 1px solid {ai_strat['color']}33;">
+                        <div style="color: #8B949E; font-size: 0.7rem; margin-bottom: 5px;">AI 建議買點 ({ai_strat['confidence']})</div>
                         <div style="display: flex; align-items: baseline; gap: 5px;">
-                            <span style="font-size: 1.4rem; font-weight: 800; color: {ai_strat['color']};">${ai_strat['price']:.1f}</span>
-                            <span style="color: #8B949E; font-size: 0.7rem;">{ai_strat['action']}</span>
+                            <span style="font-size: 1.2rem; font-weight: 800; color: {ai_strat['color']};">${ai_strat['price']:.1f}</span>
+                            <span style="color: #8B949E; font-size: 0.65rem;">{ai_strat['action']}</span>
                         </div>
-                        <div style="color: #E0E0E0; font-size: 0.7rem; margin-top: 2px; line-height: 1.2;">{ai_strat['desc']}</div>
+                        <div style="color: #ef5350; font-size: 0.7rem; font-weight: bold; margin-top: 2px;">建議停損: ${ai_strat['stop_loss']:.1f}</div>
+                        <div style="color: #8B949E; font-size: 0.65rem; line-height: 1.2;">{ai_strat['desc']}</div>
+                    </div>
+                ''', unsafe_allow_html=True)
+
+            with rec_col3:
+                st.markdown(f'''
+                    <div style="background: rgba(248, 81, 73, 0.05); padding: 12px; border-radius: 8px; border-left: 5px solid {ai_exit['color']}; height: 135px; border: 1px solid {ai_exit['color']}33;">
+                        <div style="color: #8B949E; font-size: 0.7rem; margin-bottom: 5px;">AI 建議賣點 ({ai_exit['confidence']})</div>
+                        <div style="display: flex; align-items: baseline; gap: 5px;">
+                            <span style="font-size: 1.2rem; font-weight: 800; color: {ai_exit['color']};">${ai_exit['price']:.1f}</span>
+                            <span style="color: #8B949E; font-size: 0.65rem;">{ai_exit['action']}</span>
+                        </div>
+                        <div style="color: #3FB950; font-size: 0.7rem; font-weight: bold; margin-top: 2px;">移動停利: ${ai_exit['trailing_stop']:.1f}</div>
+                        <div style="color: #8B949E; font-size: 0.65rem; line-height: 1.2;">{ai_exit['desc']}</div>
                     </div>
                 ''', unsafe_allow_html=True)
             
-            with rec_col3:
+            with rec_col4:
                 st.markdown(f'''
-                    <div style="background: rgba(188, 140, 242, 0.1); padding: 15px; border-radius: 8px; border-left: 5px solid #BC8CF2; height: 110px;">
-                        <div style="color: #8B949E; font-size: 0.75rem; margin-bottom: 5px;">7日趨勢預測</div>
+                    <div style="background: rgba(188, 140, 242, 0.1); padding: 12px; border-radius: 8px; border-left: 5px solid #BC8CF2; height: 135px;">
+                        <div style="color: #8B949E; font-size: 0.7rem; margin-bottom: 5px;">7日趨勢預測</div>
                         <div style="display: flex; align-items: baseline; gap: 5px;">
-                            <span style="font-size: 1.4rem; font-weight: 800; color: #BC8CF2;">${median_sim_7d:.1f}</span>
-                            <span style="color: {'#26a69a' if win_prob_7d > 50 else '#ef5350'}; font-size: 0.8rem; font-weight: bold;">({win_prob_7d:.1f}%)</span>
+                            <span style="font-size: 1.2rem; font-weight: 800; color: #BC8CF2;">${median_sim_7d:.1f}</span>
+                            <span style="color: {'#26a69a' if win_prob_7d > 50 else '#ef5350'}; font-size: 0.75rem; font-weight: bold;">({win_prob_7d:.1f}%)</span>
                         </div>
-                        <div style="color: #8B949E; font-size: 0.7rem;">蒙地卡羅模擬勝率</div>
+                        <div style="color: #8B949E; font-size: 0.7rem; margin-top: 15px;">蒙地卡羅模擬勝率</div>
                     </div>
                 ''', unsafe_allow_html=True)
 
@@ -560,6 +868,7 @@ if ticker_input:
             ), row=1, col=1)
             
             # MA
+            fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(window=5).mean(), name='5日均線', line=dict(color='#FFD700', width=1.5)), row=1, col=1)
             fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(window=20).mean(), name='20日均線', line=dict(color='#2962FF', width=1.5)), row=1, col=1)
             fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(window=50).mean(), name='50日均線', line=dict(color='#FF6D00', width=1.5)), row=1, col=1)
 
@@ -666,7 +975,12 @@ if ticker_input:
                             <div style="position: relative; width: 100%; height: 24px; background: #21262d; border-radius: 4px; margin-bottom: 8px; border: 1px solid #30363D; overflow: hidden;">
                                 <div style="position: absolute; left: 0; top: 0; height: 100%; width: 100%; background: linear-gradient(90deg, #ef5350 0%, #787b86 50%, #26a69a 100%); opacity: 0.1;"></div>
                                 <div style="position: absolute; 
-                                            left: {min(100, max(0, ((current_price - info.get('targetLowPrice', current_price*0.8)) / (info.get('targetHighPrice', current_price*1.2) - info.get('targetLowPrice', current_price*0.8)) * 100))) if info.get('targetHighPrice') else 50}%; 
+                                            left: {
+                                                (
+                                                    min(100, max(0, ((current_price - info.get('targetLowPrice', current_price*0.8)) / 
+                                                    (max(0.01, info.get('targetHighPrice', current_price*1.2) - info.get('targetLowPrice', current_price*0.8))) * 100)))
+                                                ) if info.get('targetHighPrice') and info.get('targetHighPrice') != info.get('targetLowPrice') else 50
+                                            }%; 
                                             top: 0; width: 3px; height: 100%; background: #FFFFFF; box-shadow: 0 0 8px #FFFFFF; z-index: 2;"></div>
                             </div>
                             <div style="display: flex; justify-content: space-between; font-size: 0.65rem; color: #8B949E;">
@@ -738,6 +1052,13 @@ if ticker_input:
             {'超買區域' if rsi_series.iloc[-1] > 70 else '超賣區域' if rsi_series.iloc[-1] < 30 else '中性區間'}
         </div>
     </div>
+    <div class="data-card" style="margin-bottom: 0; padding: 15px; border-left: 3px solid #FF6D00;">
+        <div style="color: #8B949E; font-size: 0.75rem;">VR 容量比率</div>
+        <div style="font-size: 1.1rem; font-weight: bold; margin: 5px 0;">{vr_series.iloc[-1]:.1f}%</div>
+        <div style="color: {'#ef5350' if vr_series.iloc[-1] > 160 else '#26a69a' if vr_series.iloc[-1] < 70 else '#8B949E'}; font-size: 0.7rem;">
+            {'過熱區域' if vr_series.iloc[-1] > 160 else '低迷區域' if vr_series.iloc[-1] < 70 else '常態區間'}
+        </div>
+    </div>
 </div>
 ''', unsafe_allow_html=True)
 
@@ -794,194 +1115,229 @@ if ticker_input:
                 )
                 st.plotly_chart(fig_macd, use_container_width=True)
 
+            col_kd, col_vr = st.columns(2)
+            with col_kd:
+                # KD Chart
+                fig_kd = go.Figure()
+                fig_kd.add_trace(go.Scatter(x=data.index, y=k_series, name='K線', line=dict(color='#FFD700', width=2)))
+                fig_kd.add_trace(go.Scatter(x=data.index, y=d_series, name='D線', line=dict(color='#00BFFF', width=2)))
+                fig_kd.add_hline(y=80, line_dash="dash", line_color="#ef5350", opacity=0.5)
+                fig_kd.add_hline(y=20, line_dash="dash", line_color="#26a69a", opacity=0.5)
+                fig_kd.update_layout(
+                    title="KD 指標 (9, 3, 3)", yaxis_range=[0, 100], height=250, template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    margin=dict(l=10, r=10, t=40, b=10),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                st.plotly_chart(fig_kd, use_container_width=True)
+            
+            with col_vr:
+                # VR Chart
+                fig_vr = go.Figure()
+                fig_vr.add_trace(go.Scatter(x=data.index, y=vr_series, name='VR', line=dict(color='#FF6D00', width=2)))
+                fig_vr.add_hline(y=160, line_dash="dash", line_color="#ef5350", opacity=0.5)
+                fig_vr.add_hline(y=70, line_dash="dash", line_color="#26a69a", opacity=0.5)
+                fig_vr.update_layout(
+                    title="VR 容量比率 (26)", height=250, template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    margin=dict(l=10, r=10, t=40, b=10)
+                )
+                st.plotly_chart(fig_vr, use_container_width=True)
+
         with tab3:
             # Prediction Page: Enhanced Monte Carlo & Forecast
             st.markdown(f'''
 <div class="data-card">
     <h3 style="margin-top:0; color: #58A6FF; display: flex; align-items: center; gap: 10px;">
         <span>🔮 未來路徑機率模擬</span>
-        <span style="font-size: 0.8rem; background: #238636; color: white; padding: 2px 8px; border-radius: 4px; font-weight: normal;">蒙地卡羅演算法</span>
+        <span style="font-size: 0.8rem; background: #238636; color: white; padding: 2px 8px; border-radius: 4px; font-weight: normal;">AI 增強版</span>
     </h3>
 ''', unsafe_allow_html=True)
             
-            # Calculations
-            returns = data['Close'].pct_change().dropna()
-            avg_ret, vol = returns.mean(), returns.std()
-            prediction_dates = [data.index[-1] + timedelta(days=i) for i in range(predict_days + 1)]
-            
-            num_simulations = 1000
-            sim_df = pd.DataFrame()
-            for i in range(num_simulations):
-                prices = [current_price]
-                for _ in range(predict_days):
-                    prices.append(prices[-1] * (1 + np.random.normal(avg_ret, vol)))
-                sim_df[i] = prices
-            
-            p5 = sim_df.quantile(0.05, axis=1)
-            p25 = sim_df.quantile(0.25, axis=1)
-            p75 = sim_df.quantile(0.75, axis=1)
-            p95 = sim_df.quantile(0.95, axis=1)
-            median_sim = sim_df.median(axis=1)
-            final_prices = sim_df.iloc[-1, :]
-            win_prob = (final_prices > current_price).mean() * 100
-            
-            # Layout for Analysis
-            col_mc_chart, col_prob_text = st.columns([2, 1])
-            
-            with col_mc_chart:
+            if 'sim_df_full' in locals() and sim_df_full is not None:
+                # 使用預先計算好的進階模擬數據
+                p05 = sim_df_full.quantile(0.05, axis=1)
+                p10 = sim_df_full.quantile(0.10, axis=1)
+                p50 = sim_df_full.quantile(0.50, axis=1)
+                p90 = sim_df_full.quantile(0.90, axis=1)
+                p95 = sim_df_full.quantile(0.95, axis=1)
+                
+                last_date = data.index[-1]
+                prediction_dates = [last_date + timedelta(days=i) for i in range(len(sim_df_full))]
+                
                 fig_mc = go.Figure()
                 
-                # Confidence intervals (Fan Chart style) - Simplified
-                # 95% Band
-                fig_mc.add_trace(go.Scatter(x=prediction_dates, y=p95, line=dict(width=0), showlegend=False, hoverinfo='skip'))
+                # 繪製信心區間
                 fig_mc.add_trace(go.Scatter(
-                    x=prediction_dates, y=p5, fill='tonexty', 
-                    fillcolor='rgba(88, 166, 255, 0.05)', line=dict(width=0), name='機率區間 (95%)'
+                    x=prediction_dates, y=p95,
+                    line=dict(width=0),
+                    showlegend=False,
+                    name='95th'
+                ))
+                fig_mc.add_trace(go.Scatter(
+                    x=prediction_dates, y=p05,
+                    fill='tonexty',
+                    fillcolor='rgba(88, 166, 255, 0.05)',
+                    line=dict(width=0),
+                    name='90% 信心區間'
                 ))
                 
-                # 50% Band
-                fig_mc.add_trace(go.Scatter(x=prediction_dates, y=p75, line=dict(width=0), showlegend=False, hoverinfo='skip'))
                 fig_mc.add_trace(go.Scatter(
-                    x=prediction_dates, y=p25, fill='tonexty', 
-                    fillcolor='rgba(88, 166, 255, 0.15)', line=dict(width=0), name='核心區間 (50%)'
+                    x=prediction_dates, y=p90,
+                    line=dict(width=0),
+                    showlegend=False,
+                    name='90th'
+                ))
+                fig_mc.add_trace(go.Scatter(
+                    x=prediction_dates, y=p10,
+                    fill='tonexty',
+                    fillcolor='rgba(88, 166, 255, 0.1)',
+                    line=dict(width=0),
+                    name='80% 信心區間'
                 ))
                 
-                # Median path with glow effect
+                # 繪製中位數路徑
                 fig_mc.add_trace(go.Scatter(
-                    x=prediction_dates, y=median_sim, name='預期路徑 (中位數)', 
-                    line=dict(color='#58A6FF', width=4)
+                    x=prediction_dates, y=p50,
+                    line=dict(color='#58a6ff', width=3, dash='dash'),
+                    name='預測中位數'
                 ))
+                
+                # 背景隨機路徑
+                for i in range(min(15, sim_df_full.shape[1])):
+                    fig_mc.add_trace(go.Scatter(
+                        x=prediction_dates, y=sim_df_full.iloc[:, i],
+                        line=dict(width=0.5, color='rgba(255, 255, 255, 0.1)'),
+                        showlegend=False
+                    ))
                 
                 fig_mc.update_layout(
-                    title=dict(text=f"未來 {predict_days} 天股價路徑機率預測", font=dict(size=16, color="#FFFFFF")),
-                    template="plotly_dark", height=400,
-                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                    margin=dict(l=10, r=10, t=50, b=10),
+                    title=dict(text=f"<b>{ticker_input} 未來路徑機率分佈 (AI 偏向修正)</b>", font=dict(size=16, color="#C9D1D9")),
+                    xaxis_title="日期",
+                    yaxis_title="價格",
+                    template="plotly_dark",
                     hovermode="x unified",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
-                    transition={'duration': 800, 'easing': 'cubic-in-out'}
+                    height=500,
+                    margin=dict(l=20, r=20, t=60, b=20),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
-                fig_mc.update_xaxes(showgrid=False, zeroline=False)
-                fig_mc.update_yaxes(showgrid=True, gridcolor='rgba(48, 54, 61, 0.5)', zeroline=False)
+                
                 st.plotly_chart(fig_mc, use_container_width=True)
-
-            with col_prob_text:
-                # Calculate Probabilities for specific price levels
-                target_3pct = current_price * 1.03
-                target_5pct = current_price * 1.05
-                target_minus_5pct = current_price * 0.95
                 
-                prob_3pct = (final_prices > target_3pct).mean() * 100
-                prob_5pct = (final_prices > target_5pct).mean() * 100
-                prob_minus_5pct = (final_prices < target_minus_5pct).mean() * 100
+                # 模擬指標面板
+                st.markdown('<div style="margin-top: 20px;"></div>', unsafe_allow_html=True)
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    final_median = p50.iloc[-1]
+                    upside = (final_median / current_price - 1) * 100
+                    st.metric("預期目標 (30D)", f"{final_median:.2f}", f"{upside:+.2f}%")
+                with col2:
+                    var_95 = (p05.iloc[-1] / current_price - 1) * 100
+                    st.metric("風險值 (VaR 95%)", f"{p05.iloc[-1]:.2f}", f"{var_95:.2f}%", delta_color="inverse")
+                with col3:
+                    st.metric("AI 趨勢評分", f"{ai_score:.0f}/100", f"{'看多' if ai_score > 50 else '看空'}")
+                with col4:
+                    st.metric("波動強度 (ATR)", f"{atr:.2f}", f"{atr/current_price*100:.1f}%", delta_color="off")
+                    
+                st.info(f"💡 **模型升級說明**：此模擬已整合 **AI 信心評分** 與 **ATR 動態波動率**。信心區間越窄代表近期趨勢越穩定，區間越寬則代表市場分歧較大。")
                 
-                # Define dynamic styling based on win probability
-                mc_card_border = "#3FB950" if win_prob > 55 else "#f85149" if win_prob < 45 else "#30363D"
-                mc_card_shadow = "0 0 20px rgba(63, 185, 80, 0.1)" if win_prob > 55 else "0 0 20px rgba(248, 81, 73, 0.1)" if win_prob < 45 else "none"
-                mc_card_bg = "rgba(63, 185, 80, 0.02)" if win_prob > 55 else "rgba(248, 81, 73, 0.02)" if win_prob < 45 else "rgba(255, 255, 255, 0.03)"
+                # 新增預測價格區間表格 (優化樣式)
+                st.markdown('<p style="color: #FFFFFF; font-size: 1.1rem; font-weight: bold; margin-top: 30px; margin-bottom: 15px; border-left: 4px solid #58A6FF; padding-left: 10px;">📅 未來預測價格區間 (關鍵節點)</p>', unsafe_allow_html=True)
                 
-                st.markdown(f'''
-<div style="background: {mc_card_bg}; padding: 20px; border-radius: 12px; border: 1px solid {mc_card_border}; height: 400px; box-shadow: {mc_card_shadow}; transition: all 0.5s ease;">
-<h4 style="margin-top: 0; color: #FFFFFF; font-size: 1rem; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
-<span>🎯 到達特定價格機率</span>
-<span style="font-size: 0.7rem; background: {mc_card_border}; color: white; padding: 2px 6px; border-radius: 4px; opacity: 0.8;">
-{'看多' if win_prob > 55 else '看空' if win_prob < 45 else '中性'}
-</span>
-</h4>
-<div style="margin-bottom: 25px;">
-<div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-<span style="color: #8B949E; font-size: 0.85rem;">上漲超過 +3% (${target_3pct:.1f})</span>
-<span style="color: {'#3FB950' if prob_3pct > 30 else '#26a69a'}; font-weight: bold;">{prob_3pct:.1f}%</span>
-</div>
-<div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
-<div class="progress-bar-fill" style="width: {prob_3pct}%; height: 100%; background: {'#3FB950' if prob_3pct > 30 else '#26a69a'}; box-shadow: {'0 0 10px rgba(63, 185, 80, 0.4)' if prob_3pct > 40 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
-</div>
-</div>
-<div style="margin-bottom: 25px;">
-<div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-<span style="color: #8B949E; font-size: 0.85rem;">上漲超過 +5% (${target_5pct:.1f})</span>
-<span style="color: {'#3FB950' if prob_5pct > 20 else '#26a69a'}; font-weight: bold;">{prob_5pct:.1f}%</span>
-</div>
-<div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
-<div class="progress-bar-fill" style="width: {prob_5pct}%; height: 100%; background: {'#3FB950' if prob_5pct > 20 else '#26a69a'}; opacity: {0.4 + (prob_5pct/100)}; box-shadow: {'0 0 10px rgba(63, 185, 80, 0.5)' if prob_5pct > 30 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
-</div>
-</div>
-<div style="margin-bottom: 25px;">
-<div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-<span style="color: #8B949E; font-size: 0.85rem;">維持平盤以上 (${current_price:.1f})</span>
-<span style="color: {'#58A6FF' if win_prob > 50 else '#8B949E'}; font-weight: bold;">{win_prob:.1f}%</span>
-</div>
-<div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
-<div class="progress-bar-fill" style="width: {win_prob}%; height: 100%; background: {'#58A6FF' if win_prob > 50 else '#30363D'}; box-shadow: {'0 0 10px rgba(88, 166, 255, 0.4)' if win_prob > 60 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
-</div>
-</div>
-<div>
-<div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-<span style="color: #8B949E; font-size: 0.85rem;">跌破 -5% (${target_minus_5pct:.1f})</span>
-<span style="color: {'#f85149' if prob_minus_5pct > 20 else '#ef5350'}; font-weight: bold;">{prob_minus_5pct:.1f}%</span>
-</div>
-<div style="width: 100%; height: 6px; background: #21262d; border-radius: 3px;">
-<div class="progress-bar-fill" style="width: {prob_minus_5pct}%; height: 100%; background: {'#f85149' if prob_minus_5pct > 20 else '#ef5350'}; opacity: {0.5 + (prob_minus_5pct/100)}; box-shadow: {'0 0 10px rgba(248, 81, 73, 0.5)' if prob_minus_5pct > 25 else 'none'}; border-radius: 3px; transition: all 0.3s;"></div>
-</div>
-</div>
-</div>
-''', unsafe_allow_html=True)
-
-            # Metrics for Prediction
-            st.markdown('<p style="color: #FFFFFF; font-size: 1rem; font-weight: bold; margin-bottom: 15px;">📊 模擬結果深度解析</p>', unsafe_allow_html=True)
-            m1, m2, m3, m4 = st.columns(4)
-            with m1:
-                st.metric("最可能成交價", f"${median_sim.iloc[-1]:.2f}", f"{((median_sim.iloc[-1]/current_price)-1)*100:+.2f}%", help="這是 1000 次模擬中的中位數，代表最有可能發生的結果。")
-            with m2:
-                st.metric("上漲機率", f"{win_prob:.1f}%", delta=f"{win_prob-50:.1f}%", delta_color="normal", help="在 1000 次模擬中，股價高於目前價格的次數佔比。")
-            with m3:
-                st.metric("樂觀預期 (前 5%)", f"${p95.iloc[-1]:.2f}", help="在極端樂觀的情況下，股價有 5% 的機率會突破此價位。")
-            with m4:
-                st.metric("悲觀預期 (後 5%)", f"${p5.iloc[-1]:.2f}", help="在極端悲觀的情況下，股價有 95% 的機率會維持在此價位之上。")
+                # 確保使用模擬開始時的實際價格作為基準
+                base_price = float(sim_df_full.iloc[0].mean())
+                st.write(f"📈 **模擬基準價格 (T+0):** `${base_price:.2f}`")
+                
+                # 建立自定義 HTML 表格
+                table_html = f"""
+                <style>
+                    .mc-container {{
+                        margin: 20px 0;
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                    }}
+                    .mc-table {{
+                        width: 100%;
+                        border-collapse: collapse;
+                        color: #FFFFFF;
+                        background: rgba(255, 255, 255, 0.02);
+                        border-radius: 8px;
+                        overflow: hidden;
+                    }}
+                    .mc-table thead {{
+                        background: rgba(88, 166, 255, 0.15);
+                        border-bottom: 2px solid #30363D;
+                    }}
+                    .mc-table th {{
+                        padding: 15px 12px;
+                        text-align: left;
+                        font-size: 0.85rem;
+                        text-transform: uppercase;
+                        letter-spacing: 0.05em;
+                    }}
+                    .mc-table td {{
+                        padding: 12px;
+                        font-size: 0.95rem;
+                        border-bottom: 1px solid #30363D;
+                    }}
+                    .mc-table tr:hover {{
+                        background: rgba(255, 255, 255, 0.08);
+                    }}
+                    .price-cell {{
+                        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+                        text-align: right;
+                    }}
+                    .change-cell {{
+                        text-align: right;
+                        font-weight: 700;
+                    }}
+                </style>
+                <div class="mc-container">
+                    <table class="mc-table">
+                        <thead>
+                            <tr>
+                                <th>預測節點</th>
+                                <th style="text-align: right; color: #FF7B72;">悲觀底部 (P05)</th>
+                                <th style="text-align: right; color: #FFFFFF;">中位預期 (P50)</th>
+                                <th style="text-align: right; color: #7EE787;">樂觀頂部 (P95)</th>
+                                <th style="text-align: right;">預期漲跌</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                """
+                
+                key_days = [5, 10, 20, 30]
+                for day in key_days:
+                    if day < len(sim_df_full):
+                        row_data = sim_df_full.iloc[day]
+                        row_p05 = row_data.quantile(0.05)
+                        row_p50 = row_data.quantile(0.50)
+                        row_p95 = row_data.quantile(0.95)
+                        target_date = prediction_dates[day].strftime('%m/%d')
+                        
+                        change = ((row_p50 / base_price) - 1) * 100
+                        change_color = "#7EE787" if change >= 0 else "#FF7B72"
+                        
+                        table_html += f"""
+                            <tr>
+                                <td>T+{day} 天 ({target_date})</td>
+                                <td class="price-cell">${row_p05:.2f}</td>
+                                <td class="price-cell" style="font-weight: bold; color: #FFFFFF;">${row_p50:.2f}</td>
+                                <td class="price-cell">${row_p95:.2f}</td>
+                                <td class="change-cell" style="color: {change_color};">{change:+.2f}%</td>
+                            </tr>
+                        """
+                
+                table_html += """
+                        </tbody>
+                    </table>
+                </div>
+                """
+                st.markdown(table_html, unsafe_allow_html=True)
+            else:
+                st.warning("請先在「即時分析」分頁完成 AI 分析以生成預測數據。")
             
-            # Risk/Reward Analysis
-            st.markdown(f'''
-<div style="background: rgba(88, 166, 255, 0.05); padding: 15px; border-radius: 6px; border: 1px solid #30363D; margin-top: 15px;">
-    <h4 style="margin-top: 0; font-size: 0.9rem; color: #58A6FF; display: flex; align-items: center; gap: 8px;">
-        <span>💡 投資策略參考</span>
-    </h4>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
-        <div>
-            <div style="color: #8B949E; font-size: 0.75rem;">潛在獲利空間</div>
-            <div style="color: #26a69a; font-weight: bold; font-size: 1.1rem;">+{((p95.iloc[-1]/current_price)-1)*100:.2f}%</div>
-            <div style="color: #8B949E; font-size: 0.7rem; margin-top: 4px;">若市場走勢強勁，理論上的獲利上限。</div>
-        </div>
-        <div>
-            <div style="color: #8B949E; font-size: 0.75rem;">潛在回檔風險</div>
-            <div style="color: #ef5350; font-weight: bold; font-size: 1.1rem;">{((p5.iloc[-1]/current_price)-1)*100:.2f}%</div>
-            <div style="color: #8B949E; font-size: 0.7rem; margin-top: 4px;">若市場轉弱，應注意的可能跌幅空間。</div>
-        </div>
-        <div>
-            <div style="color: #8B949E; font-size: 0.75rem;">風報比 (勝率權衡)</div>
-            <div style="color: #FFFFFF; font-weight: bold; font-size: 1.1rem;">{abs(((p95.iloc[-1]/current_price)-1) / ((p5.iloc[-1]/current_price)-1)):.2f}</div>
-            <div style="color: #8B949E; font-size: 0.7rem; margin-top: 4px;">每承擔 1 元風險可獲得的預期回報。數值大於 1 代表期望值較佳。</div>
-        </div>
-    </div>
-</div>
-''', unsafe_allow_html=True)
-
-            st.markdown("---")
-            st.subheader(t["backtest_header"])
-            if len(data) > 20:
-                train, actual = data.iloc[:-7], data.iloc[-7:]
-                bt_avg = float(train['Close'].tail(10).pct_change().mean().iloc[0] if isinstance(train['Close'].tail(10).pct_change().mean(), pd.Series) else train['Close'].tail(10).pct_change().mean())
-                bt_start = float(train['Close'].iloc[-1])
-                bt_pred_val = bt_start * (1 + bt_avg)**7
-                actual_val = float(actual['Close'].iloc[-1])
-                acc = 100 - (abs(bt_pred_val - actual_val) / actual_val * 100)
-                
-                bc1, bc2 = st.columns(2)
-                bc1.metric("回測準確度", f"{acc:.1f}%")
-                bc2.metric("7天前預測誤差", f"${abs(bt_pred_val - actual_val):.2f}")
-                st.caption(t["backtest_desc"])
-
             st.markdown('</div>', unsafe_allow_html=True)
-
+            
         with tab4:
             # Enhanced Signal Monitoring Page
             st.markdown(f'<div class="data-card"><h3 style="margin-top:0; color: #FFD700;">🔔 交易信號監測報告</h3>', unsafe_allow_html=True)
@@ -1002,28 +1358,39 @@ if ticker_input:
                         days_ago = (datetime.now().date() - s['date'].date()).days
                         time_str = "今天" if days_ago == 0 else f"{days_ago} 天前"
                         
-                        # Dot on the timeline
+                        # Calculate suggested shares
+                        suggested_shares = int(investment_budget / s['price'])
+                        shares_text = f"建議{s['type']}{suggested_shares:,} 股"
+                        
+                        # Enhanced card styling with performance metrics
                         timeline_html += f'''
-<div style="position: relative; margin-bottom: 25px;">
-    <div style="position: absolute; left: -27px; top: 15px; width: 12px; height: 12px; background: {s['color']}; border-radius: 50%; border: 3px solid #0D1117; box-shadow: 0 0 8px {s['color']}66; z-index: 2;"></div>
-    <div style="background: linear-gradient(90deg, {s['color']}0d 0%, rgba(255,255,255,0.02) 100%); border: 1px solid #30363D; border-radius: 12px; padding: 15px 20px; transition: all 0.3s ease; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-        <div style="display: flex; align-items: center; gap: 15px;">
-            <div style="background: {s['color']}22; width: 45px; height: 45px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; border: 1px solid {s['color']}44;">
-                {s['icon']}
+<div style="position: relative; margin-bottom: 15px;">
+    <div style="position: absolute; left: -25px; top: 12px; width: 8px; height: 8px; background: {s['color']}; border-radius: 50%; z-index: 2;"></div>
+    <div style="background: #161B22; border: 1px solid #30363D; border-radius: 8px; padding: 15px 18px; display: block;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="color: {s['color']}; font-size: 1.2rem;">{s['icon']}</div>
+                <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="color: {s['color']}; font-weight: bold; font-size: 0.95rem;">{s['type']}建議</span>
+                        <span style="color: #8B949E; font-size: 0.75rem;">({time_str})</span>
+                        <span style="background: {s['perf_color']}22; color: {s['perf_color']}; font-size: 0.65rem; padding: 1px 6px; border-radius: 4px; border: 1px solid {s['perf_color']}44; font-weight: 600;">{s['perf_status']}</span>
+                    </div>
+                    <div style="color: #8B949E; font-size: 0.75rem;">{s['date'].strftime('%Y-%m-%d')}</div>
+                </div>
             </div>
-            <div>
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                    <span style="color: {s['color']}; font-weight: 800; font-size: 1.1rem; letter-spacing: 0.5px;">{s['type']}建議</span>
-                    <span style="background: #21262d; color: #8B949E; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #30363D;">{time_str}</span>
-                </div>
-                <div style="color: #8B949E; font-size: 0.8rem; display: flex; align-items: center; gap: 5px;">
-                    <span style="opacity: 0.7;">🕒</span> {s['date'].strftime('%Y-%m-%d')}
-                </div>
+            <div style="text-align: right;">
+                <div style="color: #FFFFFF; font-weight: bold; font-size: 1.1rem;">${s['price']:.2f}</div>
+                <div style="color: {s['color']}; font-size: 0.8rem; font-weight: 600;">{shares_text}</div>
             </div>
         </div>
-        <div style="text-align: right;">
-            <div style="color: #FFFFFF; font-weight: 800; font-size: 1.3rem; margin-bottom: 2px;">${s['price']:.2f}</div>
-            <div style="color: #8B949E; font-size: 0.7rem; font-weight: 500;">建議成交參考價</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 1px dashed #30363D;">
+            <div style="font-size: 0.75rem; color: #8B949E;">
+                🤖 當時 AI 建議: <span style="color: #E0E0E0; font-weight: 600;">${s['ai_price']:.1f} ({s['ai_action']})</span>
+            </div>
+            <div style="font-size: 0.75rem; color: {s['perf_color'] if s['perf_pct'] != 0 else '#8B949E'}; font-weight: 600;">
+                {f"{s['perf_pct']:+.1f}%" if s['perf_pct'] != 0 else "待追蹤"}
+            </div>
         </div>
     </div>
 </div>
@@ -1058,6 +1425,64 @@ if ticker_input:
                     
                     st.warning("⚠️ 信號僅供技術參考，不構成投資建議。請務必結合基本面分析並設定停損點。")
 
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with tab5:
+            # News Page
+            st.markdown(f'<div class="data-card"><h3 style="margin-top:0; color: #58A6FF;">📰 {stock_name} 即時市場新聞</h3>', unsafe_allow_html=True)
+            
+            try:
+                # 嘗試多種來源獲取新聞
+                news_list = []
+                
+                # 來源 1: Yahoo Finance
+                yf_news = stock.news
+                if yf_news:
+                    for item in yf_news:
+                        news_list.append({
+                            'title': item.get('title'),
+                            'link': item.get('link'),
+                            'publisher': item.get('publisher', 'Yahoo Finance'),
+                            'time': pd.to_datetime(item.get('providerPublishTime', 0), unit='s'),
+                            'tags': item.get('relatedTickers', [])
+                        })
+                
+                # 來源 2: 如果 Yahoo 新聞太少，補充 Google News (模擬 RSS)
+                if len(news_list) < 3:
+                    import urllib.parse
+                    # 針對台股使用股票名稱搜尋
+                    search_query = urllib.parse.quote(f"{stock_name} 股票 新聞")
+                    google_news_url = f"https://news.google.com/rss/search?q={search_query}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+                    
+                    # 提示使用者可以使用外部連結查看更多
+                    st.caption(f"💡 Yahoo 新聞來源有限，您可以點擊此處查看 [Google News: {stock_name}]({google_news_url.replace('/rss', '')})")
+                
+                if not news_list:
+                    st.info(f"目前 Yahoo Finance 尚無 {stock_name} 的相關即時新聞。")
+                    st.markdown(f"您可以查看 [Google 新聞搜尋結果](https://www.google.com/search?q={urllib.parse.quote(stock_name)}+新聞&tbm=nws)")
+                else:
+                    # 按時間排序 (最新的在前)
+                    news_list.sort(key=lambda x: x['time'], reverse=True)
+                    
+                    for item in news_list[:15]: # 顯示最新 15 則
+                        time_str = item['time'].strftime('%Y-%m-%d %H:%M')
+                        st.markdown(f'''
+<div style="background: rgba(255, 255, 255, 0.03); padding: 15px; border-radius: 8px; border: 1px solid #30363D; margin-bottom: 12px; transition: all 0.3s ease;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+        <span style="color: #58A6FF; font-size: 0.75rem; font-weight: 600; background: rgba(88, 166, 255, 0.1); padding: 2px 8px; border-radius: 4px;">{item['publisher']}</span>
+        <span style="color: #8B949E; font-size: 0.7rem;">{time_str}</span>
+    </div>
+    <h4 style="margin: 0 0 10px 0; color: #FFFFFF; line-height: 1.4; font-size: 1rem;">
+        <a href="{item['link']}" target="_blank" style="text-decoration: none; color: inherit; transition: color 0.2s;" onmouseover="this.style.color='#58A6FF'" onmouseout="this.style.color='#FFFFFF'">{item['title']}</a>
+    </h4>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        {" ".join([f'<span style="background: rgba(255, 255, 255, 0.05); color: #8B949E; padding: 1px 6px; border-radius: 4px; font-size: 0.65rem;">#{tag}</span>' for tag in item['tags'][:3]])}
+    </div>
+</div>
+''', unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"無法載入新聞資訊: {e}")
+            
             st.markdown('</div>', unsafe_allow_html=True)
 
         # Footer
