@@ -1,3 +1,15 @@
+"""
+================================================================================
+PROJECT: Professional Quant Trading Terminal (Taiwan Stock Market)
+VERSION: 2.0.0
+AUTHOR: Quant Systems Team
+LICENSE: Proprietary / Commercial Buyout
+DESCRIPTION: 
+    An integrated quantitative analysis system featuring AI-driven strategy 
+    evolution, multi-factor scoring, and advanced Monte Carlo risk simulation.
+================================================================================
+"""
+
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -9,7 +21,21 @@ import time
 import feedparser
 import urllib.parse
 from scipy.stats import t as student_t
-st.set_page_config(page_title="股票分析", layout="wide", initial_sidebar_state="expanded")
+
+# --- SYSTEM CONFIGURATION ---
+SYSTEM_SETTINGS = {
+    "RISK_FREE_RATE": 0.015,       # Annual risk-free rate for Sharpe calculation
+    "DEFAULT_BACKTEST_DAYS": 5,    # Holding period for backtest evaluation
+    "SIMULATION_DAYS": 30,         # Prediction horizon for Monte Carlo
+    "AI_CONFIDENCE_THRESHOLD": 60, # Minimum score to trigger 'Strong Buy'
+    "THEME_COLOR": "#58A6FF"       # Primary institutional blue
+}
+
+st.set_page_config(
+    page_title="專業量化交易終端 | AI-Powered Analysis", 
+    layout="wide", 
+    initial_sidebar_state="expanded"
+)
 
 # Custom CSS for Institutional Look
 st.markdown("""
@@ -175,6 +201,10 @@ t = {
 
 @st.cache_data
 def get_stock_data(ticker, period, interval):
+    """
+    獲取股票歷史數據 (Fetches historical stock data from yfinance)
+    包含快取機制以優化性能 (Includes caching for performance optimization)
+    """
     ticker = ticker.strip().upper()
     try:
         data = yf.download(ticker, period=period, interval=interval)
@@ -182,17 +212,20 @@ def get_stock_data(ticker, period, interval):
             data.columns = data.columns.get_level_values(0)
         return data
     except Exception as e:
-        st.error(f"Error fetching data: {e}")
+        st.error(f"數據抓取失敗 (Data fetch failed): {e}")
         return None
 
 @st.cache_data
 def get_financial_data(ticker):
-    """Fetches annual financial data for trends."""
+    """
+    獲取年度財務數據趨勢 (Fetches annual financial data for trends)
+    用於分析營收與淨利增長 (Used for analyzing Revenue & Net Income growth)
+    """
     try:
         stock = yf.Ticker(ticker)
         financials = stock.financials
         if financials is not None and not financials.empty:
-            # Extract Revenue and Net Income
+            # 提取營收與淨利 (Extract Revenue and Net Income)
             data = financials.T[['Total Revenue', 'Net Income']].copy()
             data.index = [d.year for d in data.index]
             return data.sort_index()
@@ -223,25 +256,51 @@ def get_signal_score(data, rsi_val, macd_val, signal_val):
     elif score <= -2: return "強勢賣出", "#d32f2f", 15
     return "中性", "#787b86", 50
 
+def analyze_news_sentiment(title):
+    """
+    簡易金融新聞情緒分析
+    """
+    bullish_words = ['漲', '紅', '創高', '噴', '強', '買超', '利多', '成長', '優於預期', '上修', '展望佳', '獲利翻倍', '轉虧為盈', '訂單滿']
+    bearish_words = ['跌', '綠', '破底', '崩', '弱', '賣超', '利空', '衰退', '低於預期', '下修', '展望淡', '虧損', '裁員', '訂單減']
+    
+    score = 0
+    for word in bullish_words:
+        if word in title:
+            score += 1
+    for word in bearish_words:
+        if word in title:
+            score -= 1
+            
+    if score > 0:
+        return "利多", "#3FB950"
+    elif score < 0:
+        return "利空", "#F85149"
+    else:
+        return "中性", "#8B949E"
+
 def get_expert_insight(ticker, price, rsi, rating, macd_val, signal_val, buy_sigs, sell_sigs, current_date):
-    # RSI Analysis
+    """
+    生成專家診斷報告 (Generates Expert Technical Diagnosis Report)
+    基於 RSI, MACD 與 AI 評級提供綜合建議
+    """
+    # RSI 分析 (RSI Analysis)
     rsi_status = "超買" if rsi > 70 else "超賣" if rsi < 30 else "中性"
     rsi_color = "#ef5350" if rsi > 70 else "#26a69a" if rsi < 30 else "#8B949E"
     rsi_desc = "股價進入超買區，短期回檔風險增加。" if rsi > 70 else "股價進入超賣區，可能存在反彈機會。" if rsi < 30 else "RSI 處於中性區間，走勢相對穩定。"
     
-    # MACD Analysis
+    # MACD 分析 (MACD Analysis)
     macd_diff = macd_val - signal_val
     macd_status = "多頭金叉" if macd_diff > 0 else "空頭死叉"
     macd_color = "#26a69a" if macd_diff > 0 else "#ef5350"
     macd_desc = "快線穿越慢線，短期動能偏多。" if macd_diff > 0 else "快線跌破慢線，短期動能轉弱。"
     
-    # Action Advice
+    # 策略建議 (Action Advice Based on Rating)
     action = "積極買進" if "STRONG BUY" in rating else "建議買進" if "BUY" in rating else "建議放空" if "SELL" in rating else "避開空頭" if "STRONG SELL" in rating else "中性觀望"
     action_color = "#26a69a" if "BUY" in rating else "#ef5350" if "SELL" in rating else "#58A6FF"
     
-    # Signal check
+    # 即時信號檢查 (Real-time Signal Check)
     latest_signal = "目前無明確進場信號。"
-    # Convert current_date to date for comparison if needed
+    # 檢查今日是否觸發買賣信號 (Check if today triggers signals)
     if current_date in buy_sigs:
         latest_signal = "🔥 今日觸發【買入信號】，技術面轉強！"
         action = "即刻買進"
@@ -294,20 +353,22 @@ def create_tv_gauge(score_val, label, color):
     )
     return fig
 
-def calculate_health_scores(info):
-    """Calculates 1-10 scores for financial health based on info data."""
-    # 1. Profitability Score (Margins)
-    pm = info.get('profitMargins', 0) or 0
-    roe = info.get('returnOnEquity', 0) or 0
+def calculate_health_scores(ticker_metadata):
+    """
+    根據股票元數據計算 1-10 分的財務健康得分 (Calculates 1-10 scores for financial health based on metadata)
+    """
+    # 1. 獲利能力得分 (Profitability Score - Margins)
+    pm = ticker_metadata.get('profitMargins', 0) or 0
+    roe = ticker_metadata.get('returnOnEquity', 0) or 0
     p_score = min(10, max(1, int(pm * 20 + roe * 15))) if pm and roe else 5
     
-    # 2. Leverage Score (Debt to Equity)
-    de = info.get('debtToEquity', 100) or 100
+    # 2. 槓桿得分 (Leverage Score - Debt to Equity)
+    de = ticker_metadata.get('debtToEquity', 100) or 100
     l_score = min(10, max(1, 10 - int(de / 40))) if de else 8
     
-    # 3. Cash Flow Score
-    fcf = info.get('freeCashflow', 0) or 0
-    rev = info.get('totalRevenue', 1) or 1
+    # 3. 現金流得分 (Cash Flow Score)
+    fcf = ticker_metadata.get('freeCashflow', 0) or 0
+    rev = ticker_metadata.get('totalRevenue', 1) or 1
     c_score = min(10, max(1, int((fcf / rev) * 30 + 5))) if fcf and rev else 6
     
     return p_score, l_score, c_score
@@ -468,12 +529,12 @@ def check_signal_performance(signal_date, suggested_price, signal_type, full_dat
     except:
         return "分析中", "#8B949E", 0
 
-def run_advanced_mc_simulation(current_price, data, ai_score, atr, info=None, days=30, simulations=1000):
+def run_advanced_mc_simulation(current_price, data, ai_score, atr, ticker_metadata=None, days=30, simulations=1000):
     """
     重構後的蒙地卡羅模擬引擎 v3.0：
-    - 採用 Student's t-分佈模擬肥尾效應
-    - 整合均值回歸 (EMA200) 機制
-    - 多因子漂移率與動態波動率調整
+    - 採用 Student's t-分佈模擬肥尾效應 (Uses Student's t-distribution for fat-tail modeling)
+    - 整合均值回歸 (EMA200) 機制 (Mean Reversion to EMA200)
+    - 多因子漂移率與動態波動率調整 (Multi-factor drift and dynamic volatility)
     """
     returns = data['Close'].pct_change().dropna()
     hist_vol = returns.std()
@@ -495,8 +556,8 @@ def run_advanced_mc_simulation(current_price, data, ai_score, atr, info=None, da
     
     # 法人目標價偏誤 (如有)
     target_bias = 0
-    if info and info.get('targetMedianPrice'):
-        target_price = info.get('targetMedianPrice')
+    if ticker_metadata and ticker_metadata.get('targetMedianPrice'):
+        target_price = ticker_metadata.get('targetMedianPrice')
         target_dist = (target_price - current_price) / current_price
         target_bias = target_dist * 0.1 / days
 
@@ -578,6 +639,102 @@ def get_ai_exit_strategy(data, rsi, bb_upper, target_median, atr):
         "score": exit_score
     }
 
+def calculate_quant_factors(data, ticker_metadata, rsi_series, atr_series):
+    """
+    量化多因子評分系統 (Modularized Quant Multi-Factor Scoring System)
+    """
+    factors = {}
+    
+    # 1. 趨勢因子 (Trend)
+    close_prices = data['Close']
+    ema20 = close_prices.ewm(span=20).mean()
+    ema50 = close_prices.ewm(span=50).mean()
+    trend_score = 0
+    if close_prices.iloc[-1] > ema20.iloc[-1] > ema50.iloc[-1]:
+        trend_score = 90
+    elif close_prices.iloc[-1] > ema20.iloc[-1]:
+        trend_score = 70
+    else:
+        trend_score = 40
+    factors['趨勢 (Trend)'] = trend_score
+    
+    # 2. 動能因子 (Momentum)
+    mom_score = float(rsi_series.iloc[-1]) if not rsi_series.empty else 50
+    factors['動能 (Momentum)'] = mom_score
+    
+    # 3. 波動因子 (Volatility)
+    atr_val = float(atr_series.iloc[-1]) if not atr_series.empty else 0
+    vol_ratio = (atr_val / close_prices.iloc[-1]) * 100
+    vol_score = max(0, 100 - vol_ratio * 15) 
+    factors['波動 (Volatility)'] = vol_score
+    
+    # 4. 量能因子 (Volume)
+    v_ma5 = data['Volume'].rolling(5).mean().iloc[-1]
+    v_ma20 = data['Volume'].rolling(20).mean().iloc[-1]
+    volume_score = min(100, (v_ma5 / v_ma20) * 50) if v_ma20 > 0 else 50
+    factors['量能 (Volume)'] = volume_score
+    
+    # 5. 價值因子 (Value Factor)
+    pe = ticker_metadata.get('trailingPE') or ticker_metadata.get('forwardPE') or 20
+    value_score = max(0, 100 - pe * 2)
+    factors['價值 (Value)'] = value_score
+    
+    return factors
+
+def run_backtest(data, all_signals):
+    """
+    進階量化回測引擎：計算勝率、收益、夏普比率與最大回撤
+    """
+    if not all_signals or len(data) < 20:
+        return None
+        
+    results = []
+    equity_curve = [1.0] # 權益曲線，起始為 1.0
+    
+    for sig in all_signals:
+        sig_date = sig['date']
+        post_data = data.loc[sig_date:].head(6)
+        if len(post_data) < 2:
+            continue
+            
+        entry_price = sig['price']
+        exit_price = post_data['Close'].iloc[-1]
+        
+        profit_pct = (exit_price - entry_price) / entry_price
+        if sig['type'] == '賣出':
+            profit_pct = -profit_pct
+            
+        results.append(profit_pct)
+        equity_curve.append(equity_curve[-1] * (1 + profit_pct))
+        
+    if not results:
+        return None
+        
+    # --- 量化指標計算 ---
+    results_series = pd.Series(results)
+    win_rate = (results_series > 0).mean() * 100
+    avg_profit = results_series.mean() * 100
+    
+    # 1. 夏普比率 (使用配置中的無風險利率)
+    risk_free_per_trade = SYSTEM_SETTINGS["RISK_FREE_RATE"] / 252 * SYSTEM_SETTINGS["DEFAULT_BACKTEST_DAYS"]
+    std_dev = results_series.std()
+    sharpe = (results_series.mean() - risk_free_per_trade) / std_dev if std_dev > 0 else 0
+    
+    # 2. 最大回撤 (MDD)
+    equity_series = pd.Series(equity_curve)
+    rolling_max = equity_series.cummax()
+    drawdowns = (equity_series - rolling_max) / rolling_max
+    mdd = drawdowns.min() * 100
+    
+    return {
+        "win_rate": win_rate,
+        "avg_profit": avg_profit,
+        "total_signals": len(results),
+        "sharpe": sharpe,
+        "mdd": mdd,
+        "max_profit": results_series.max() * 100
+    }
+
 # Sidebar settings
 with st.sidebar:
     st.markdown(f'<h2 style="font-size: 1.2rem; color: #FFFFFF; margin-bottom: 20px;">{t["settings"]}</h2>', unsafe_allow_html=True)
@@ -629,12 +786,40 @@ if ticker_input:
     
     if data is not None and not data.empty:
         stock = yf.Ticker(ticker_input)
-        info = stock.info
-        p_score, l_score, c_score = calculate_health_scores(info)
+        ticker_metadata = stock.info
+        
+        # --- 大盤關聯度分析 (Benchmark: ^TWII) ---
+        market_benchmark = "^TWII"
+        try:
+            m_data = yf.download(market_benchmark, period=period, interval=interval)
+            if not m_data.empty:
+                if isinstance(m_data.columns, pd.MultiIndex):
+                    m_data.columns = m_data.columns.get_level_values(0)
+                
+                # 對齊日期計算
+                aligned_df = pd.concat([data['Close'], m_data['Close']], axis=1).dropna()
+                aligned_df.columns = ['Stock', 'Market']
+                returns = aligned_df.pct_change().dropna()
+                
+                market_corr = returns['Stock'].corr(returns['Market'])
+                market_cov = returns['Stock'].cov(returns['Market'])
+                market_var = returns['Market'].var()
+                market_beta = market_cov / market_var if market_var != 0 else 1.0
+                
+                # 相對漲幅 (近 30 天)
+                stock_30d = (data['Close'].iloc[-1] / data['Close'].iloc[-20] - 1) * 100 if len(data) > 20 else 0
+                market_30d = (m_data['Close'].iloc[-1] / m_data['Close'].iloc[-20] - 1) * 100 if len(m_data) > 20 else 0
+                relative_strength = stock_30d - market_30d
+            else:
+                market_corr, market_beta, relative_strength = 0, 1.0, 0
+        except:
+            market_corr, market_beta, relative_strength = 0, 1.0, 0
+
+        p_score, l_score, c_score = calculate_health_scores(ticker_metadata)
         
         # Update header placeholder with stock name and ticker
-        stock_name = info.get('shortName') or info.get('longName') or ticker_input
-        stock_header_placeholder.markdown(f'<p style="color: #58A6FF; font-size: 1.2rem; font-weight: 600; margin-top: -5px;">{stock_name} <span style="color: #8B949E; font-weight: 400; font-size: 0.9rem;">({ticker_input})</span></p>', unsafe_allow_html=True)
+        ticker_display_name = ticker_metadata.get('shortName') or ticker_metadata.get('longName') or ticker_input
+        stock_header_placeholder.markdown(f'<p style="color: #58A6FF; font-size: 1.2rem; font-weight: 600; margin-top: -5px;">{ticker_display_name} <span style="color: #8B949E; font-weight: 400; font-size: 0.9rem;">({ticker_input})</span></p>', unsafe_allow_html=True)
 
         # Pre-calculations
         # RSI
@@ -705,13 +890,13 @@ if ticker_input:
         # Calculate Buy/Sell Signals with AI + Multi-Factor Confirmation
         all_signals = []
         vol_ma5 = data['Volume'].rolling(window=5).mean()
-        target_median = info.get('targetMedianPrice', None)
+        target_median = ticker_metadata.get('targetMedianPrice', None)
         
-        # 遍歷數據生成信號
-        for i in range(20, len(data)): # 從 20 開始確保有足夠的 MA 數據
+        # 遍歷數據生成信號 (Iterate to generate signals)
+        for i in range(20, len(data)): # 從 20 開始確保有足夠的 MA 數據 (Ensure enough data for MAs)
             d = data.index[i]
             
-            # --- 基礎技術指標過濾 ---
+            # --- 基礎技術指標過濾 (Basic Technical Filters) ---
             macd_gold = macd_series.iloc[i] > signal_series.iloc[i] and macd_series.iloc[i-1] <= signal_series.iloc[i-1]
             rsi_buy = rsi_series.iloc[i] > 30 and rsi_series.iloc[i-1] <= 30
             trend_ok_buy = data['Close'].iloc[i] > ema20.iloc[i]
@@ -721,7 +906,7 @@ if ticker_input:
             rsi_sell = rsi_series.iloc[i] < 70 and rsi_series.iloc[i-1] >= 70
             trend_ok_sell = data['Close'].iloc[i] < ema20.iloc[i]
 
-            # --- 買入信號處理 ---
+            # --- 買入信號處理 (Buy Signal Processing) ---
             if (macd_gold or rsi_buy) and trend_ok_buy and vol_ok:
                 try:
                     h_rsi = float(rsi_series.iloc[i])
@@ -747,7 +932,7 @@ if ticker_input:
                     })
                 except: continue
 
-            # --- 賣出信號處理 ---
+            # --- 賣出信號處理 (Sell Signal Processing) ---
             if (macd_death or rsi_sell) and trend_ok_sell:
                 try:
                     h_rsi = float(rsi_series.iloc[i])
@@ -785,7 +970,7 @@ if ticker_input:
 
         current_price = float(data['Close'].iloc[-1])
         
-        # Top Metrics
+        # 頂部關鍵指標顯示 (Top Key Metrics Display)
         m1, m2, m3, m4, m5 = st.columns(5)
         with m1:
             st.metric(t["current_price"], f"{current_price:.2f}")
@@ -797,26 +982,26 @@ if ticker_input:
             volume = float(data['Volume'].iloc[-1])
             st.metric(t["volume"], f"{volume/1e6:.2f}M")
         with m4:
-            market_cap = info.get('marketCap', 'N/A')
+            market_cap = ticker_metadata.get('marketCap', 'N/A')
             if isinstance(market_cap, (int, float)):
                 st.metric(t["market_cap"], f"{market_cap/1e12:.2f}T")
             else:
                 st.metric(t["market_cap"], "N/A")
         with m5:
-            day_high = info.get('dayHigh', 'N/A')
+            day_high = ticker_metadata.get('dayHigh', 'N/A')
             st.metric("當日最高", f"{day_high}" if isinstance(day_high, (int, float)) else "N/A")
 
-        # Technical Rating Badge
+        # 技術面評分徽章 (Technical Rating Badge)
         sig_text, sig_color, sig_val = get_signal_score(data, float(rsi_series.iloc[-1]), float(macd_series.iloc[-1]), float(signal_series.iloc[-1]))
         
         st.markdown("---")
         
-        # --- AI Simulation & Decision Calculations (Calculated once for all tabs) ---
+        # --- AI 模擬與決策計算 (AI Simulation & Decision Calculations) ---
         with st.spinner(f"正在生成 {ticker_input} 未來模擬路徑與決策分析..."):
             atr = float(atr_series.iloc[-1])
             
             sim_df_full = run_advanced_mc_simulation(
-                current_price, data, ai_score, atr, info=info, days=30, simulations=1000
+                current_price, data, ai_score, atr, ticker_metadata=ticker_metadata, days=30, simulations=1000
             )
             
             # 將關鍵數據存入 session_state 以確保在不同分頁間切換時數據不會消失
@@ -827,43 +1012,69 @@ if ticker_input:
             st.session_state['ticker_input'] = ticker_input
             st.session_state['prediction_dates'] = [data.index[-1] + timedelta(days=i) for i in range(len(sim_df_full))]
             
-            # Extract 7-day stats for summary
+            # 提取 7 天模擬數據用於摘要 (Extract 7-day stats for summary)
             sim_df_7d = sim_df_full.iloc[0:8, :]
             median_sim_7d = sim_df_7d.median(axis=1).iloc[-1]
             win_prob_7d = (sim_df_7d.iloc[-1, :] > current_price).mean() * 100
             
-            # AI Smart Entry/Exit Calculation
-            ai_strat = get_ai_entry_strategy(
+            # AI 進出場策略計算 (AI Entry/Exit Strategy Calculation)
+            entry_strategy = get_ai_entry_strategy(
                 data, float(rsi_series.iloc[-1]), float(ema20.iloc[-1]), float(ema50.iloc[-1]), 
                 float(bb_lower.iloc[-1]), win_prob_7d, (p_score, l_score, c_score), 
                 float(vr_series.iloc[-1]), float(atr_series.iloc[-1]), dynamic_weights=best_weights
             )
             
-            target_median = info.get('targetMedianPrice', None)
-            ai_exit = get_ai_exit_strategy(
+            target_median = ticker_metadata.get('targetMedianPrice', None)
+            exit_strategy = get_ai_exit_strategy(
                 data, float(rsi_series.iloc[-1]), float(bb_upper.iloc[-1]), 
                 target_median, float(atr_series.iloc[-1])
             )
-
+            
         tab1, tab2, tab3, tab4, tab5 = st.tabs([t["tab_overview"], t["tab_tech"], t["tab_predict"], t["tab_signals"], t["tab_news"]])
 
         with tab1:
-            # 1. Quick Recommendation & Prediction Summary
-            res = get_expert_insight(ticker_input, current_price, float(rsi_series.iloc[-1]), sig_text, float(macd_series.iloc[-1]), float(signal_series.iloc[-1]), buy_signals, sell_signals, data.index[-1])
+            # 1. 快速建議與預測摘要 (Quick Recommendation & Prediction Summary)
+            insight_report = get_expert_insight(
+                ticker_input, 
+                current_price, 
+                float(rsi_series.iloc[-1]), 
+                sig_text, 
+                float(macd_series.iloc[-1]), 
+                float(signal_series.iloc[-1]), 
+                buy_signals, 
+                sell_signals, 
+                data.index[-1]
+            )
             
-            # UI display for Evolution Status
+            # 顯示 AI 進化狀態與市場關聯 (Display Evolution Status & Market Correlation)
             st.markdown(f'''
-                <div style="background: rgba(56, 139, 253, 0.1); padding: 10px; border-radius: 10px; border: 1px solid #388bfd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 1.2rem;">🧬</span>
-                        <div>
-                            <div style="color: #388bfd; font-size: 0.8rem; font-weight: bold;">AI 自我進化狀態：已優化</div>
-                            <div style="color: #8B949E; font-size: 0.7rem;">針對 {ticker_input} 尋獲最佳權重比例</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                    <div style="background: rgba(56, 139, 253, 0.1); padding: 12px; border-radius: 10px; border: 1px solid #388bfd; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 1.2rem;">🧬</span>
+                            <div>
+                                <div style="color: #388bfd; font-size: 0.8rem; font-weight: bold;">AI 自我進化狀態：已優化</div>
+                                <div style="color: #8B949E; font-size: 0.7rem;">針對 {ticker_input} 尋獲最佳權重</div>
+                            </div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="color: #3FB950; font-size: 0.8rem; font-weight: bold;">準確率: {learn_acc*100:.1f}%</div>
                         </div>
                     </div>
-                    <div style="text-align: right;">
-                        <div style="color: #E0E0E0; font-size: 0.7rem;">技術 {best_weights[0]*100:.0f}% | 基本 {best_weights[1]*100:.0f}% | 量能 {best_weights[2]*100:.0f}%</div>
-                        <div style="color: #3FB950; font-size: 0.75rem; font-weight: bold;">歷史學習準確率: {learn_acc*100:.1f}%</div>
+                    <div style="background: rgba(188, 140, 242, 0.1); padding: 12px; border-radius: 10px; border: 1px solid #BC8CF2; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 1.2rem;">📊</span>
+                            <div>
+                                <div style="color: #BC8CF2; font-size: 0.8rem; font-weight: bold;">市場關聯分析 (Beta)</div>
+                                <div style="color: #8B949E; font-size: 0.7rem;">與大盤相關係數: {market_corr:.2f}</div>
+                            </div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="color: {'#3FB950' if relative_strength > 0 else '#ef5350'}; font-size: 0.8rem; font-weight: bold;">
+                                相對強度: {relative_strength:+.1f}%
+                            </div>
+                            <div style="color: #E0E0E0; font-size: 0.65rem;">Beta: {market_beta:.2f}</div>
+                        </div>
                     </div>
                 </div>
             ''', unsafe_allow_html=True)
@@ -871,36 +1082,36 @@ if ticker_input:
             rec_col1, rec_col2, rec_col3, rec_col4 = st.columns([1, 1, 1, 1])
             with rec_col1:
                 st.markdown(f'''
-                    <div style="background: rgba(88, 166, 255, 0.1); padding: 12px; border-radius: 8px; border-left: 5px solid {res['action']['color']}; height: 135px;">
+                    <div style="background: rgba(88, 166, 255, 0.1); padding: 12px; border-radius: 8px; border-left: 5px solid {insight_report['action']['color']}; height: 135px;">
                         <div style="color: #8B949E; font-size: 0.7rem; margin-bottom: 5px;">當前操作建議</div>
-                        <div style="font-size: 1.2rem; font-weight: 800; color: {res['action']['color']};">{res['action']['status']}</div>
-                        <div style="color: #E0E0E0; font-size: 0.7rem; line-height: 1.2;">{res['action']['desc']}</div>
+                        <div style="font-size: 1.2rem; font-weight: 800; color: {insight_report['action']['color']};">{insight_report['action']['status']}</div>
+                        <div style="color: #E0E0E0; font-size: 0.7rem; line-height: 1.2;">{insight_report['action']['desc']}</div>
                     </div>
                 ''', unsafe_allow_html=True)
             
             with rec_col2:
                 st.markdown(f'''
-                    <div style="background: rgba(63, 185, 80, 0.05); padding: 12px; border-radius: 8px; border-left: 5px solid {ai_strat['color']}; height: 135px; border: 1px solid {ai_strat['color']}33;">
-                        <div style="color: #8B949E; font-size: 0.7rem; margin-bottom: 5px;">AI 建議買點 ({ai_strat['confidence']})</div>
+                    <div style="background: rgba(63, 185, 80, 0.05); padding: 12px; border-radius: 8px; border-left: 5px solid {entry_strategy['color']}; height: 135px; border: 1px solid {entry_strategy['color']}33;">
+                        <div style="color: #8B949E; font-size: 0.7rem; margin-bottom: 5px;">AI 建議買點 ({entry_strategy['confidence']})</div>
                         <div style="display: flex; align-items: baseline; gap: 5px;">
-                            <span style="font-size: 1.2rem; font-weight: 800; color: {ai_strat['color']};">${ai_strat['price']:.1f}</span>
-                            <span style="color: #8B949E; font-size: 0.65rem;">{ai_strat['action']}</span>
+                            <span style="font-size: 1.2rem; font-weight: 800; color: {entry_strategy['color']};">${entry_strategy['price']:.1f}</span>
+                            <span style="color: #8B949E; font-size: 0.65rem;">{entry_strategy['action']}</span>
                         </div>
-                        <div style="color: #ef5350; font-size: 0.7rem; font-weight: bold; margin-top: 2px;">建議停損: ${ai_strat['stop_loss']:.1f}</div>
-                        <div style="color: #8B949E; font-size: 0.65rem; line-height: 1.2;">{ai_strat['desc']}</div>
+                        <div style="color: #ef5350; font-size: 0.7rem; font-weight: bold; margin-top: 2px;">建議停損: ${entry_strategy['stop_loss']:.1f}</div>
+                        <div style="color: #8B949E; font-size: 0.65rem; line-height: 1.2;">{entry_strategy['desc']}</div>
                     </div>
                 ''', unsafe_allow_html=True)
 
             with rec_col3:
                 st.markdown(f'''
-                    <div style="background: rgba(248, 81, 73, 0.05); padding: 12px; border-radius: 8px; border-left: 5px solid {ai_exit['color']}; height: 135px; border: 1px solid {ai_exit['color']}33;">
-                        <div style="color: #8B949E; font-size: 0.7rem; margin-bottom: 5px;">AI 建議賣點 ({ai_exit['confidence']})</div>
+                    <div style="background: rgba(248, 81, 73, 0.05); padding: 12px; border-radius: 8px; border-left: 5px solid {exit_strategy['color']}; height: 135px; border: 1px solid {exit_strategy['color']}33;">
+                        <div style="color: #8B949E; font-size: 0.7rem; margin-bottom: 5px;">AI 建議賣點 / 出場策略 ({exit_strategy['confidence']})</div>
                         <div style="display: flex; align-items: baseline; gap: 5px;">
-                            <span style="font-size: 1.2rem; font-weight: 800; color: {ai_exit['color']};">${ai_exit['price']:.1f}</span>
-                            <span style="color: #8B949E; font-size: 0.65rem;">{ai_exit['action']}</span>
+                            <span style="font-size: 1.2rem; font-weight: 800; color: {exit_strategy['color']};">${exit_strategy['price']:.1f}</span>
+                            <span style="color: #8B949E; font-size: 0.65rem;">{exit_strategy['action']}</span>
                         </div>
-                        <div style="color: #3FB950; font-size: 0.7rem; font-weight: bold; margin-top: 2px;">移動停利: ${ai_exit['trailing_stop']:.1f}</div>
-                        <div style="color: #8B949E; font-size: 0.65rem; line-height: 1.2;">{ai_exit['desc']}</div>
+                        <div style="color: #3FB950; font-size: 0.7rem; font-weight: bold; margin-top: 2px;">出場保命線: ${exit_strategy['trailing_stop']:.1f} (跌破必賣)</div>
+                        <div style="color: #8B949E; font-size: 0.65rem; line-height: 1.2; margin-top: 5px;">{exit_strategy['desc']}</div>
                     </div>
                 ''', unsafe_allow_html=True)
             
@@ -917,49 +1128,98 @@ if ticker_input:
                 ''', unsafe_allow_html=True)
 
             # Overview Tab: Advanced Plotly Chart
-            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                               vertical_spacing=0.03, subplot_titles=(f'{ticker_input} 價量走勢', '成交量'), 
-                               row_width=[0.2, 0.7])
-
-            # Candlestick
-            fig.add_trace(go.Candlestick(
-                x=data.index, open=data['Open'], high=data['High'], low=data['Low'], close=data['Close'], 
-                name='K線', increasing_line_color='#26a69a', decreasing_line_color='#ef5350'
-            ), row=1, col=1)
+            quant_factors = calculate_quant_factors(data, ticker_metadata, rsi_series, atr_series)
             
-            # MA
-            fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(window=5).mean(), name='5日均線', line=dict(color='#FFD700', width=1.5)), row=1, col=1)
-            fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(window=20).mean(), name='20日均線', line=dict(color='#2962FF', width=1.5)), row=1, col=1)
-            fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(window=50).mean(), name='50日均線', line=dict(color='#FF6D00', width=1.5)), row=1, col=1)
-
-            # Volume
-            colors = ['#26a69a' if row['Close'] >= row['Open'] else '#ef5350' for index, row in data.iterrows()]
-            fig.add_trace(go.Bar(x=data.index, y=data['Volume'], name='成交量', marker_color=colors, opacity=0.5), row=2, col=1)
-
-            fig.update_layout(
-                template="plotly_dark",
-                height=600,
-                xaxis_rangeslider_visible=False,
-                margin=dict(l=10, r=10, t=30, b=10),
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#30363D', zeroline=False)
-            fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#30363D', zeroline=False)
+            col_chart, col_quant = st.columns([2, 1])
             
-            st.plotly_chart(fig, use_container_width=True)
+            with col_chart:
+                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                                   vertical_spacing=0.03, subplot_titles=(f'{ticker_input} 價量走勢', '成交量'), 
+                                   row_width=[0.2, 0.7])
 
-            # 2. Financial Health & Stats Section
-            f_data = get_financial_data(ticker_input)
+                # Candlestick
+                fig.add_trace(go.Candlestick(
+                    x=data.index, open=data['Open'], high=data['High'], low=data['Low'], close=data['Close'], 
+                    name='K線', increasing_line_color='#26a69a', decreasing_line_color='#ef5350'
+                ), row=1, col=1)
+                
+                # MA
+                fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(window=5).mean(), name='5日均線', line=dict(color='#FFD700', width=1.5)), row=1, col=1)
+                fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(window=20).mean(), name='20日均線', line=dict(color='#2962FF', width=1.5)), row=1, col=1)
+                fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(window=50).mean(), name='50日均線', line=dict(color='#FF6D00', width=1.5)), row=1, col=1)
+
+                # Volume
+                colors = ['#26a69a' if row['Close'] >= row['Open'] else '#ef5350' for index, row in data.iterrows()]
+                fig.add_trace(go.Bar(x=data.index, y=data['Volume'], name='成交量', marker_color=colors, opacity=0.5), row=2, col=1)
+
+                fig.update_layout(
+                    template="plotly_dark",
+                    height=600,
+                    xaxis_rangeslider_visible=False,
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#30363D', zeroline=False)
+                fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#30363D', zeroline=False)
+                
+                st.plotly_chart(fig, use_container_width=True)
+
+            with col_quant:
+                # 量化評分雷達圖
+                categories = list(quant_factors.keys())
+                values = list(quant_factors.values())
+                
+                fig_radar = go.Figure()
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=values + [values[0]],
+                    theta=categories + [categories[0]],
+                    fill='toself',
+                    fillcolor='rgba(88, 166, 255, 0.2)',
+                    line=dict(color='#58A6FF', width=2),
+                    name='因子評分'
+                ))
+                
+                fig_radar.update_layout(
+                    polar=dict(
+                        radialaxis=dict(visible=True, range=[0, 100], gridcolor='#30363D', tickfont=dict(size=8)),
+                        angularaxis=dict(gridcolor='#30363D', tickfont=dict(size=10)),
+                        bgcolor='rgba(0,0,0,0)'
+                    ),
+                    showlegend=False,
+                    template="plotly_dark",
+                    height=350,
+                    margin=dict(l=40, r=40, t=40, b=40),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)'
+                )
+                st.plotly_chart(fig_radar, use_container_width=True)
+                
+                # 綜合評分顯示
+                avg_score = sum(values) / len(values)
+                score_color = "#3FB950" if avg_score > 70 else "#D29922" if avg_score > 50 else "#f85149"
+                
+                st.markdown(f'''
+                    <div style="text-align: center; padding: 15px; background: rgba(48, 54, 61, 0.2); border-radius: 10px; border: 1px solid #30363D;">
+                        <div style="color: #8B949E; font-size: 0.8rem; margin-bottom: 5px;">綜合量化評分</div>
+                        <div style="font-size: 2.5rem; font-weight: 800; color: {score_color};">{avg_score:.1f}</div>
+                        <div style="color: {score_color}; font-size: 0.7rem; font-weight: bold;">
+                            {"市場領導者" if avg_score > 80 else "趨勢強勁" if avg_score > 65 else "中性整理" if avg_score > 50 else "弱勢觀察"}
+                        </div>
+                    </div>
+                ''', unsafe_allow_html=True)
+
+            # 2. 財務健康度與統計摘要 (Financial Health & Stats Section)
+            financial_statements = get_financial_data(ticker_input)
             perf_html = ""
-            if f_data is not None and len(f_data) >= 2:
-                latest_year = f_data.index[-1]
-                prev_year = f_data.index[-2]
-                rev_latest = f_data['Total Revenue'].iloc[-1]
-                rev_prev = f_data['Total Revenue'].iloc[-2]
-                ni_latest = f_data['Net Income'].iloc[-1]
-                ni_prev = f_data['Net Income'].iloc[-2]
+            if financial_statements is not None and len(financial_statements) >= 2:
+                latest_year = financial_statements.index[-1]
+                prev_year = financial_statements.index[-2]
+                rev_latest = financial_statements['Total Revenue'].iloc[-1]
+                rev_prev = financial_statements['Total Revenue'].iloc[-2]
+                ni_latest = financial_statements['Net Income'].iloc[-1]
+                ni_prev = financial_statements['Net Income'].iloc[-2]
                 
                 rev_growth = (rev_latest / rev_prev - 1) * 100 if rev_prev != 0 else 0
                 ni_growth = (ni_latest / ni_prev - 1) * 100 if ni_prev != 0 else 0
@@ -986,8 +1246,9 @@ if ticker_input:
                 st.plotly_chart(create_tv_gauge(sig_val, sig_text, sig_color), use_container_width=True)
             
             with col_stats_data:
-                # Define dynamic styling based on health scores
-                avg_health = (p_score + l_score + c_score) / 3
+                # 根據健康得分定義動態樣式 (Define dynamic styling based on health scores)
+                profitability_score, leverage_score, cashflow_score = p_score, l_score, c_score
+                avg_health = (profitability_score + leverage_score + cashflow_score) / 3
                 health_border = "#3FB950" if avg_health > 7 else "#f85149" if avg_health < 4 else "#30363D"
                 health_bg = "rgba(63, 185, 80, 0.02)" if avg_health > 7 else "rgba(248, 81, 73, 0.02)" if avg_health < 4 else "#161B22"
                 
@@ -1001,34 +1262,38 @@ if ticker_input:
                             </span>
                         </h3>
                         <div style="display: flex; gap: 10px;">
-                            <span style="font-size: 0.7rem; color: #8B949E; background: #21262d; padding: 2px 6px; border-radius: 3px; border: 1px solid #30363D;">獲利 {p_score}/10</span>
-                            <span style="font-size: 0.7rem; color: #8B949E; background: #21262d; padding: 2px 6px; border-radius: 3px; border: 1px solid #30363D;">槓桿 {l_score}/10</span>
-                            <span style="font-size: 0.7rem; color: #8B949E; background: #21262d; padding: 2px 6px; border-radius: 3px; border: 1px solid #30363D;">現金 {c_score}/10</span>
+                            <span style="font-size: 0.7rem; color: #8B949E; background: #21262d; padding: 2px 6px; border-radius: 3px; border: 1px solid #30363D;">獲利 {profitability_score}/10</span>
+                            <span style="font-size: 0.7rem; color: #8B949E; background: #21262d; padding: 2px 6px; border-radius: 3px; border: 1px solid #30363D;">槓桿 {leverage_score}/10</span>
+                            <span style="font-size: 0.7rem; color: #8B949E; background: #21262d; padding: 2px 6px; border-radius: 3px; border: 1px solid #30363D;">現金 {cashflow_score}/10</span>
                         </div>
                     </div>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
                         <div>
                             <p style="color: #8B949E; font-size: 0.75rem; margin-bottom: 5px;">估值指標</p>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 3px;"><span>{t['trailing_pe']}</span><span style="font-weight: bold;">{info.get('trailingPE', 'N/A')}</span></div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 3px;"><span>{t['forward_pe']}</span><span style="font-weight: bold;">{info.get('forwardPE', 'N/A')}</span></div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem;"><span>{t['div_yield']}</span><span style="font-weight: bold; color: #26a69a;">{info.get('dividendYield', 0)*100:.2f}%</span></div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 3px;"><span>{t['trailing_pe']}</span><span style="font-weight: bold;">{ticker_metadata.get('trailingPE', 'N/A')}</span></div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 3px;"><span>{t['forward_pe']}</span><span style="font-weight: bold;">{ticker_metadata.get('forwardPE', 'N/A')}</span></div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem;"><span>{t['div_yield']}</span><span style="font-weight: bold; color: #26a69a;">{ticker_metadata.get('dividendYield', 0)*100:.2f}%</span></div>
                         </div>
                         <div>
                             <p style="color: #8B949E; font-size: 0.75rem; margin-bottom: 5px;">價格區間</p>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 3px;"><span>52週高</span><span style="font-weight: bold;">{info.get('fiftyTwoWeekHigh', 'N/A')}</span></div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 3px;"><span>52週低</span><span style="font-weight: bold;">{info.get('fiftyTwoWeekLow', 'N/A')}</span></div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem;"><span>Beta</span><span style="font-weight: bold;">{info.get('beta', 'N/A')}</span></div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 3px;"><span>52週高</span><span style="font-weight: bold;">{ticker_metadata.get('fiftyTwoWeekHigh', 'N/A')}</span></div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 3px;"><span>52週低</span><span style="font-weight: bold;">{ticker_metadata.get('fiftyTwoWeekLow', 'N/A')}</span></div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem;"><span>Beta</span><span style="font-weight: bold;">{ticker_metadata.get('beta', 'N/A')}</span></div>
                         </div>
                         <div>
-                            <p style="color: #8B949E; font-size: 0.75rem; margin-bottom: 8px;">法人目標分析</p>
+                            <p style="color: #8B949E; font-size: 0.75rem; margin-bottom: 8px;">法人目標分析 (Analyst Targets)</p>
                             <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 3px;">
-                                <span>目標中位</span>
-                                <span style="font-weight: bold; color: #58A6FF;">{info.get('targetMedianPrice', 'N/A')}</span>
+                                <span>目標中位 (建議參考)</span>
+                                <span style="font-weight: bold; color: #58A6FF;">{ticker_metadata.get('targetMedianPrice', 'N/A')}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 3px;">
+                                <span>法人最高 (壓力位)</span>
+                                <span style="font-weight: bold; color: #f85149;">{ticker_metadata.get('targetHighPrice', 'N/A')}</span>
                             </div>
                             <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 8px;">
                                 <span>潛在空間</span>
                                 <span style="font-weight: bold; color: #26a69a;">
-                                    {f"+{((info.get('targetMedianPrice', current_price) / current_price) - 1) * 100:.1f}%" if info.get('targetMedianPrice') else 'N/A'}
+                                    {f"+{((ticker_metadata.get('targetMedianPrice', current_price) / current_price) - 1) * 100:.1f}%" if ticker_metadata.get('targetMedianPrice') else 'N/A'}
                                 </span>
                             </div>
                             <!-- Range Visualizer -->
@@ -1037,15 +1302,15 @@ if ticker_input:
                                 <div style="position: absolute; 
                                             left: {
                                                 (
-                                                    min(100, max(0, ((current_price - info.get('targetLowPrice', current_price*0.8)) / 
-                                                    (max(0.01, info.get('targetHighPrice', current_price*1.2) - info.get('targetLowPrice', current_price*0.8))) * 100)))
-                                                ) if info.get('targetHighPrice') and info.get('targetHighPrice') != info.get('targetLowPrice') else 50
+                                                    min(100, max(0, ((current_price - ticker_metadata.get('targetLowPrice', current_price*0.8)) / 
+                                                    (max(0.01, ticker_metadata.get('targetHighPrice', current_price*1.2) - ticker_metadata.get('targetLowPrice', current_price*0.8))) * 100)))
+                                                ) if ticker_metadata.get('targetHighPrice') and ticker_metadata.get('targetHighPrice') != ticker_metadata.get('targetLowPrice') else 50
                                             }%; 
                                             top: 0; width: 3px; height: 100%; background: #FFFFFF; box-shadow: 0 0 8px #FFFFFF; z-index: 2;"></div>
                             </div>
                             <div style="display: flex; justify-content: space-between; font-size: 0.65rem; color: #8B949E;">
-                                <span>低: {info.get('targetLowPrice', 'N/A')}</span>
-                                <span>高: {info.get('targetHighPrice', 'N/A')}</span>
+                                <span>低: {ticker_metadata.get('targetLowPrice', 'N/A')}</span>
+                                <span>高: {ticker_metadata.get('targetHighPrice', 'N/A')}</span>
                             </div>
                         </div>
                     </div>
@@ -1053,44 +1318,55 @@ if ticker_input:
                 </div>
                 ''', unsafe_allow_html=True)
 
-            # Fixed Expert Insight Card at the bottom
-            stock_name = info.get('shortName') or info.get('longName') or ticker_input
-            res = get_expert_insight(ticker_input, current_price, float(rsi_series.iloc[-1]), sig_text, float(macd_series.iloc[-1]), float(signal_series.iloc[-1]), buy_signals, sell_signals, data.index[-1])
+            # 底部專家技術診斷報告 (Expert Insight Card at the bottom)
+            ticker_display_name = ticker_metadata.get('shortName') or ticker_metadata.get('longName') or ticker_input
+            insight_report = get_expert_insight(
+                ticker_input, 
+                current_price, 
+                float(rsi_series.iloc[-1]), 
+                sig_text, 
+                float(macd_series.iloc[-1]), 
+                float(signal_series.iloc[-1]), 
+                buy_signals, 
+                sell_signals, 
+                data.index[-1]
+            )
             
-            # Professional Diagnostic Section with Grid Layout
+            # 專業診斷區塊佈局 (Professional Diagnostic Section with Grid Layout)
             st.markdown(f'''
-<div class="data-card" style="border-top: 2px solid {res['action']['color']}; border-color: {res['action']['color']}44; background: linear-gradient(180deg, {res['action']['color']}0a 0%, #0D1117 100%); transition: all 0.5s ease;">
-    <h3 style="margin-top:0; color: {res['action']['color']}; font-size: 1.1rem; display: flex; align-items: center; gap: 8px; margin-bottom: 20px;">
-        <span style="font-size: 1.4rem;">⚖️</span> {stock_name} - 專家技術診斷報告
+<div class="data-card" style="border-top: 2px solid {insight_report['action']['color']}; border-color: {insight_report['action']['color']}44; background: linear-gradient(180deg, {insight_report['action']['color']}0a 0%, #0D1117 100%); transition: all 0.5s ease;">
+    <h3 style="margin-top:0; color: {insight_report['action']['color']}; font-size: 1.1rem; display: flex; align-items: center; gap: 8px; margin-bottom: 20px;">
+        <span style="font-size: 1.4rem;">⚖️</span> {ticker_display_name} - 專家技術診斷報告
     </h3>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
-        <div style="background: rgba(48, 54, 61, 0.2); padding: 15px; border-radius: 6px; border-left: 3px solid {res['rsi']['color']};">
+        <div style="background: rgba(48, 54, 61, 0.2); padding: 15px; border-radius: 6px; border-left: 3px solid {insight_report['rsi']['color']};">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <span style="color: #8B949E; font-size: 0.8rem;">RSI 強度</span>
-                <span style="background: {res['rsi']['color']}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: bold;">{res['rsi']['status']}</span>
+                <span style="background: {insight_report['rsi']['color']}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: bold;">{insight_report['rsi']['status']}</span>
             </div>
-            <div style="font-size: 1.5rem; font-weight: bold; color: #FFFFFF; margin-bottom: 5px;">{res['rsi']['val']}</div>
-            <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.4;">{res['rsi']['desc']}</div>
+            <div style="font-size: 1.5rem; font-weight: bold; color: #FFFFFF; margin-bottom: 5px;">{insight_report['rsi']['val']}</div>
+            <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.4;">{insight_report['rsi']['desc']}</div>
         </div>
-        <div style="background: rgba(48, 54, 61, 0.2); padding: 15px; border-radius: 6px; border-left: 3px solid {res['macd']['color']};">
+        <div style="background: rgba(48, 54, 61, 0.2); padding: 15px; border-radius: 6px; border-left: 3px solid {insight_report['macd']['color']};">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <span style="color: #8B949E; font-size: 0.8rem;">MACD 差值</span>
-                <span style="background: {res['macd']['color']}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: bold;">{res['macd']['status']}</span>
+                <span style="background: {insight_report['macd']['color']}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: bold;">{insight_report['macd']['status']}</span>
             </div>
-            <div style="font-size: 1.5rem; font-weight: bold; color: #FFFFFF; margin-bottom: 5px;">{res['macd']['val']}</div>
-            <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.4;">{res['macd']['desc']}</div>
+            <div style="font-size: 1.5rem; font-weight: bold; color: #FFFFFF; margin-bottom: 5px;">{insight_report['macd']['val']}</div>
+            <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.4;">{insight_report['macd']['desc']}</div>
         </div>
         <div style="background: rgba(88, 166, 255, 0.1); padding: 15px; border-radius: 6px; border: 1px dashed #58A6FF;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <span style="color: #58A6FF; font-size: 0.8rem; font-weight: bold;">AI 建議佈局</span>
-                <span style="color: {ai_strat['color']}; font-weight: 800; font-size: 0.9rem;">{ai_strat['action']} (${ai_strat['price']:.1f})</span>
+                <span style="color: {entry_strategy['color']}; font-weight: 800; font-size: 0.9rem;">{entry_strategy['action']} (${entry_strategy['price']:.1f})</span>
             </div>
-            <div style="font-size: 1rem; color: #FFFFFF; font-weight: 500; margin-bottom: 5px;">策略部署 (信心:{ai_strat['confidence']})</div>
-            <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.4;">{ai_strat['desc']}</div>
+            <div style="font-size: 1rem; color: #FFFFFF; font-weight: 500; margin-bottom: 5px;">策略部署 (信心:{entry_strategy['confidence']})</div>
+            <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.4;">{entry_strategy['desc']}</div>
         </div>
     </div>
 </div>
 ''', unsafe_allow_html=True)
+
 
         with tab2:
             st.markdown(f'''
@@ -1356,6 +1632,36 @@ if ticker_input:
             # Enhanced Signal Monitoring Page
             st.markdown(f'<div class="data-card"><h3 style="margin-top:0; color: #FFD700;">🔔 交易信號監測報告 (近一個月)</h3>', unsafe_allow_html=True)
             
+            # 運行歷史回測績效
+            perf = run_backtest(data, all_signals)
+            if perf:
+                st.markdown(f"""
+                <div style="background: rgba(255, 215, 0, 0.05); padding: 15px; border-radius: 8px; border: 1px solid rgba(255, 215, 0, 0.2); margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                        <div style="text-align: center; flex: 1;">
+                            <div style="color: #8B949E; font-size: 0.75rem;">歷史預估勝率</div>
+                            <div style="color: #FFD700; font-size: 1.2rem; font-weight: bold;">{perf['win_rate']:.1f}%</div>
+                        </div>
+                        <div style="text-align: center; flex: 1;">
+                            <div style="color: #8B949E; font-size: 0.75rem;">5日平均收益</div>
+                            <div style="color: {'#3FB950' if perf['avg_profit'] > 0 else '#F85149'}; font-size: 1.2rem; font-weight: bold;">{perf['avg_profit']:+.2f}%</div>
+                        </div>
+                        <div style="text-align: center; flex: 1;">
+                            <div style="color: #8B949E; font-size: 0.75rem;">夏普比率 (Sharpe)</div>
+                            <div style="color: #58A6FF; font-size: 1.2rem; font-weight: bold;">{perf['sharpe']:.2f}</div>
+                        </div>
+                        <div style="text-align: center; flex: 1;">
+                            <div style="color: #8B949E; font-size: 0.75rem;">最大回撤 (MDD)</div>
+                            <div style="color: #F85149; font-size: 1.2rem; font-weight: bold;">{perf['mdd']:.1f}%</div>
+                        </div>
+                        <div style="text-align: center; flex: 1;">
+                            <div style="color: #8B949E; font-size: 0.75rem;">樣本信號數</div>
+                            <div style="color: #E0E0E0; font-size: 1.2rem; font-weight: bold;">{perf['total_signals']}</div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
             if not latest_signals:
                 st.info("近一個月內技術指標尚未偵測到明確的買賣信號。")
             else:
@@ -1445,7 +1751,7 @@ if ticker_input:
 
         with tab5:
             # News Page - 使用原生組件避免佈局崩潰
-            st.subheader(f"📰 {stock_name} 即時市場新聞")
+            st.subheader(f"📰 {ticker_display_name} 即時市場新聞")
             
             try:
                 news_list = []
@@ -1471,7 +1777,7 @@ if ticker_input:
                 # 來源 2: Google News RSS (擴展來源)
                 if len(news_list) < 15:
                     try:
-                        clean_name = stock_name.split('(')[0].strip()
+                        clean_name = ticker_display_name.split('(')[0].strip()
                         # 擴展搜尋關鍵字以包含更多大新聞源
                         search_keywords = [f"{clean_name} 股票", f"{clean_name} 營收", f"{clean_name} 財經"]
                         
@@ -1500,7 +1806,7 @@ if ticker_input:
                         st.warning(f"Google 新聞抓取暫時不可用: {g_err}")
                 
                 if not news_list:
-                    st.info(f"目前尚無 {stock_name} 的相關即時新聞。")
+                    st.info(f"目前尚無 {ticker_display_name} 的相關即時新聞。")
                 else:
                     news_list.sort(key=lambda x: x['time'], reverse=True)
                     
@@ -1508,11 +1814,17 @@ if ticker_input:
                         time_str = item['time'].strftime('%m-%d %H:%M')
                         source_label = "Yahoo" if item['source'] == 'Yahoo' else "Google"
                         
+                        # 加入 AI 情緒分析
+                        sentiment_text, sentiment_color = analyze_news_sentiment(item['title'])
+                        
                         # 簡化單條新聞 HTML，移除嵌套 div
                         st.markdown(f"""
                         <div style="padding: 12px; border-bottom: 1px solid #30363D; margin-bottom: 10px;">
                             <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 5px;">
-                                <span style="color: #58A6FF; font-weight: bold;">[{source_label}] {item['publisher']}</span>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <span style="color: #58A6FF; font-weight: bold;">[{source_label}] {item['publisher']}</span>
+                                    <span style="background: {sentiment_color}22; color: {sentiment_color}; padding: 1px 6px; border-radius: 4px; border: 1px solid {sentiment_color}44; font-weight: bold; font-size: 0.65rem;">{sentiment_text}</span>
+                                </div>
                                 <span style="color: #8B949E;">{time_str}</span>
                             </div>
                             <a href="{item['link']}" target="_blank" style="text-decoration: none; color: #FFFFFF; font-size: 1rem; font-weight: 500; line-height: 1.4;">
@@ -1534,3 +1846,5 @@ if ticker_input:
         )
     else:
         st.warning(t["no_data"])
+else:
+    st.info("請在側邊欄輸入股票代碼以開始分析（例如：2330.TW）")
