@@ -20,6 +20,7 @@ import streamlit as st
 import time
 import feedparser
 import urllib.parse
+import re
 from scipy.stats import t as student_t
 
 # --- SYSTEM CONFIGURATION ---
@@ -199,21 +200,58 @@ t = {
     "target_price": "目標價參考資訊"
 }
 
+def resolve_ticker(ticker):
+    """
+    智能解析股票代碼 (Intelligently resolves ticker symbols)
+    自動處理台股後綴 (.TW, .TWO) 並校正格式
+    """
+    ticker = ticker.strip().upper()
+    
+    # 如果已經有後綴，直接返回
+    if "." in ticker:
+        return ticker
+        
+    # 如果全是數字 (可能是台股代碼)
+    if re.match(r'^\d{4,6}$', ticker):
+        # 嘗試優先匹配上市 (.TW)
+        try:
+            test_tw = f"{ticker}.TW"
+            # 這裡不實際下載數據，只是返回建議代碼，真正的驗證在下載時進行
+            return test_tw
+        except:
+            return ticker
+            
+    return ticker
+
 @st.cache_data
 def get_stock_data(ticker, period, interval):
     """
     獲取股票歷史數據 (Fetches historical stock data from yfinance)
     包含快取機制以優化性能 (Includes caching for performance optimization)
     """
-    ticker = ticker.strip().upper()
+    # 先解析代碼
+    resolved_ticker = resolve_ticker(ticker)
+    
     try:
-        data = yf.download(ticker, period=period, interval=interval)
+        data = yf.download(resolved_ticker, period=period, interval=interval, progress=False)
+        
+        # 如果上市 (.TW) 下載失敗且全是數字，嘗試上櫃 (.TWO)
+        if (data is None or data.empty) and ".TW" in resolved_ticker:
+            alt_ticker = resolved_ticker.replace(".TW", ".TWO")
+            data = yf.download(alt_ticker, period=period, interval=interval, progress=False)
+            if data is not None and not data.empty:
+                resolved_ticker = alt_ticker
+                
+        if data is None or data.empty:
+            return None, ticker
+            
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
-        return data
+            
+        return data, resolved_ticker
     except Exception as e:
         st.error(f"數據抓取失敗 (Data fetch failed): {e}")
-        return None
+        return None, ticker
 
 @st.cache_data
 def get_financial_data(ticker):
@@ -221,9 +259,16 @@ def get_financial_data(ticker):
     獲取年度財務數據趨勢 (Fetches annual financial data for trends)
     用於分析營收與淨利增長 (Used for analyzing Revenue & Net Income growth)
     """
+    resolved_ticker = resolve_ticker(ticker)
     try:
-        stock = yf.Ticker(ticker)
+        stock = yf.Ticker(resolved_ticker)
         financials = stock.financials
+        
+        # 再次檢查，如果是純數字輸入導致第一次解析失敗（例如應該是 .TWO 卻給了 .TW）
+        if (financials is None or financials.empty) and ".TW" in resolved_ticker:
+            stock = yf.Ticker(resolved_ticker.replace(".TW", ".TWO"))
+            financials = stock.financials
+            
         if financials is not None and not financials.empty:
             # 提取營收與淨利 (Extract Revenue and Net Income)
             data = financials.T[['Total Revenue', 'Net Income']].copy()
@@ -782,16 +827,16 @@ with col_status:
     ''', unsafe_allow_html=True)
 
 if ticker_input:
-    data = get_stock_data(ticker_input, period, interval)
+    data, resolved_ticker = get_stock_data(ticker_input, period, interval)
     
     if data is not None and not data.empty:
-        stock = yf.Ticker(ticker_input)
+        stock = yf.Ticker(resolved_ticker)
         ticker_metadata = stock.info
         
         # --- 大盤關聯度分析 (Benchmark: ^TWII) ---
         market_benchmark = "^TWII"
         try:
-            m_data = yf.download(market_benchmark, period=period, interval=interval)
+            m_data = yf.download(market_benchmark, period=period, interval=interval, progress=False)
             if not m_data.empty:
                 if isinstance(m_data.columns, pd.MultiIndex):
                     m_data.columns = m_data.columns.get_level_values(0)
@@ -818,8 +863,8 @@ if ticker_input:
         p_score, l_score, c_score = calculate_health_scores(ticker_metadata)
         
         # Update header placeholder with stock name and ticker
-        ticker_display_name = ticker_metadata.get('shortName') or ticker_metadata.get('longName') or ticker_input
-        stock_header_placeholder.markdown(f'<p style="color: #58A6FF; font-size: 1.2rem; font-weight: 600; margin-top: -5px;">{ticker_display_name} <span style="color: #8B949E; font-weight: 400; font-size: 0.9rem;">({ticker_input})</span></p>', unsafe_allow_html=True)
+        ticker_display_name = ticker_metadata.get('shortName') or ticker_metadata.get('longName') or resolved_ticker
+        stock_header_placeholder.markdown(f'<p style="color: #58A6FF; font-size: 1.2rem; font-weight: 600; margin-top: -5px;">{ticker_display_name} <span style="color: #8B949E; font-weight: 400; font-size: 0.9rem;">({resolved_ticker})</span></p>', unsafe_allow_html=True)
 
         # Pre-calculations
         # RSI
@@ -874,7 +919,7 @@ if ticker_input:
         atr_series = calculate_atr(data)
         
         # --- AI Self-Evolution (Calculated early for signal filtering) ---
-        with st.spinner(f"AI 正在針對 {ticker_input} 進行自我進化優化..."):
+        with st.spinner(f"AI 正在針對 {resolved_ticker} 進行自我進化優化..."):
             best_weights, learn_acc = optimize_ai_weights(
                 data, rsi_series, ema20, ema50, bb_lower, bb_upper, vr_series, atr_series, (p_score, l_score, c_score)
             )
@@ -1035,7 +1080,7 @@ if ticker_input:
         with tab1:
             # 1. 快速建議與預測摘要 (Quick Recommendation & Prediction Summary)
             insight_report = get_expert_insight(
-                ticker_input, 
+                resolved_ticker, 
                 current_price, 
                 float(rsi_series.iloc[-1]), 
                 sig_text, 
@@ -1054,7 +1099,7 @@ if ticker_input:
                             <span style="font-size: 1.2rem;">🧬</span>
                             <div>
                                 <div style="color: #388bfd; font-size: 0.8rem; font-weight: bold;">AI 自我進化狀態：已優化</div>
-                                <div style="color: #8B949E; font-size: 0.7rem;">針對 {ticker_input} 尋獲最佳權重</div>
+                                <div style="color: #8B949E; font-size: 0.7rem;">針對 {resolved_ticker} 尋獲最佳權重</div>
                             </div>
                         </div>
                         <div style="text-align: right;">
@@ -1134,7 +1179,7 @@ if ticker_input:
             
             with col_chart:
                 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                                   vertical_spacing=0.03, subplot_titles=(f'{ticker_input} 價量走勢', '成交量'), 
+                                   vertical_spacing=0.03, subplot_titles=(f'{resolved_ticker} 價量走勢', '成交量'), 
                                    row_width=[0.2, 0.7])
 
                 # Candlestick
@@ -1211,7 +1256,7 @@ if ticker_input:
                 ''', unsafe_allow_html=True)
 
             # 2. 財務健康度與統計摘要 (Financial Health & Stats Section)
-            financial_statements = get_financial_data(ticker_input)
+            financial_statements = get_financial_data(resolved_ticker)
             perf_html = ""
             if financial_statements is not None and len(financial_statements) >= 2:
                 latest_year = financial_statements.index[-1]
@@ -1553,7 +1598,7 @@ if ticker_input:
                 ))
                 
                 fig_mc.update_layout(
-                    title=dict(text=f"<b>{ticker_input} 未來 30 日機率分佈預測 (t-分佈 + 均值回歸)</b>", font=dict(size=16, color="#C9D1D9")),
+                    title=dict(text=f"<b>{resolved_ticker} 未來 30 日機率分佈預測 (t-分佈 + 均值回歸)</b>", font=dict(size=16, color="#C9D1D9")),
                     xaxis_title="日期",
                     yaxis_title="價格",
                     template="plotly_dark",
@@ -1565,7 +1610,7 @@ if ticker_input:
                     plot_bgcolor="rgba(0,0,0,0)"
                 )
                 
-                st.plotly_chart(fig_mc, use_container_width=True, key=f"mc_chart_{ticker_input}", theme="streamlit")
+                st.plotly_chart(fig_mc, use_container_width=True, key=f"mc_chart_{resolved_ticker}", theme="streamlit")
                 
                 # 模擬指標面板 (更新為更豐富的數據)
                 st.markdown("<div style=\"margin-top: -20px;\"></div>", unsafe_allow_html=True)
