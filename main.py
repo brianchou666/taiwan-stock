@@ -304,34 +304,50 @@ def get_financial_data(ticker):
     except Exception:
         return None
 
-def get_signal_score(data, rsi_val, macd_val, signal_val, m_colors=None):
+def get_signal_score(data, rsi_val, macd_val, signal_val, supertrend_dir=None, m_colors=None):
+    """
+    綜合信號評分系統 v3.5 (波段交易優化版)
+    優先考慮中長期趨勢共振與量價結構，過濾短期雜訊
+    """
     # 預設顏色方案 (Default colors if m_colors not provided)
     if m_colors is None:
         m_colors = {
             "up": "#26a69a", "down": "#ef5350", "buy": "#26a69a", "sell": "#ef5350"
         }
     
-    score = 0
-    # RSI Signal
-    if rsi_val < 30: score += 1  # Oversold
-    elif rsi_val > 70: score -= 1 # Overbought
-    
-    # MACD Signal
-    if macd_val > signal_val: score += 1
-    else: score -= 1
-    
-    # Trend Signal (Price vs MA20)
+    score_pts = 0
     current_price = float(data['Close'].iloc[-1])
-    ma20 = float(data['Close'].rolling(window=20).mean().iloc[-1])
-    if current_price > ma20: score += 1
-    else: score -= 1
     
-    # Return rating and color
-    if score >= 2: return "強勢買入", "#26a69a", 85
-    elif score == 1: return "買入", "#26a69a", 65
-    elif score == -1: return "賣出", "#ef5350", 35
-    elif score <= -2: return "強勢賣出", "#ef5350", 15
-    return "中性", "#787b86", 50
+    # 1. 中長期趨勢共振 (Trend Resonance) - 權重高
+    ema20 = float(data['Close'].ewm(span=20).mean().iloc[-1])
+    ema50 = float(data['Close'].ewm(span=50).mean().iloc[-1])
+    ema200 = float(data['Close'].ewm(span=200).mean().iloc[-1])
+    
+    if ema20 > ema50 > ema200: score_pts += 2 # 多頭完美排列
+    elif current_price > ema50: score_pts += 1 # 站上關鍵生命線
+    
+    # 2. SuperTrend (波段核心指標)
+    if supertrend_dir is not None and supertrend_dir == 1: score_pts += 1
+    
+    # 3. MACD 動能 (MACD Momentum)
+    if macd_val > signal_val: score_pts += 1
+    
+    # 4. RSI 強勢區間 (RSI Strength)
+    # 波段交易看重強勢而非超賣
+    if 50 < rsi_val < 75: score_pts += 1 
+    elif rsi_val < 35: score_pts += 1 # 極端超跌機會
+    
+    # 5. 量能增溫 (Volume Support)
+    v_ma20 = data['Volume'].rolling(20).mean().iloc[-1]
+    if data['Volume'].iloc[-1] > v_ma20 * 1.3:
+        if data['Close'].iloc[-1] > data['Open'].iloc[-1]: score_pts += 1
+        
+    # Mapping score to Rating
+    if score_pts >= 5: return "波段強勢", m_colors["buy"], 90
+    elif score_pts >= 3: return "趨勢偏多", m_colors["buy"], 75
+    elif score_pts >= 1: return "震盪整理", "#787b86", 55
+    elif score_pts <= -2: return "波段轉弱", m_colors["sell"], 20
+    return "趨勢不明", "#787b86", 45
 
 def analyze_news_sentiment(title, m_colors=None):
     """
@@ -361,42 +377,63 @@ def analyze_news_sentiment(title, m_colors=None):
     else:
         return "中性", "#8B949E"
 
-def get_expert_insight(ticker, price, rsi, rating, macd_val, signal_val, buy_sigs, sell_sigs, current_date, m_colors=None):
+def get_expert_insight(ticker, price, rsi, rating, macd_val, signal_val, buy_sigs, sell_sigs, current_date, supertrend_dir=None, m_colors=None):
     """
-    生成專家診斷報告 (Generates Expert Technical Diagnosis Report)
-    基於 RSI, MACD 與 AI 評級提供綜合建議
+    生成專家診斷報告 (Generates Expert Technical Diagnosis Report) - 波段交易優化版
+    基於 RSI, MACD, SuperTrend 與 AI 評級提供綜合建議
     """
     # RSI 分析 (RSI Analysis)
-    rsi_status = "超買" if rsi > 70 else "超賣" if rsi < 30 else "中性"
-    rsi_color = "#ef5350" if rsi > 70 else "#26a69a" if rsi < 30 else "#8B949E"
-    rsi_desc = "股價進入超買區，短期回檔風險增加。" if rsi > 70 else "股價進入超賣區，可能存在反彈機會。" if rsi < 30 else "RSI 處於中性區間，走勢相對穩定。"
+    rsi_status = "強勢區" if rsi > 60 else "超賣" if rsi < 30 else "中性"
+    rsi_color = "#26a69a" if rsi > 60 else "#26a69a" if rsi < 30 else "#8B949E"
+    rsi_desc = "RSI 進入 60 以上強勢區，波段動能正在釋放。" if rsi > 60 else "股價進入超賣區，可能存在波段築底機會。" if rsi < 30 else "RSI 處於中性區間，適合波段佈局。"
     
     # MACD 分析 (MACD Analysis)
     macd_diff = macd_val - signal_val
-    macd_status = "多頭金叉" if macd_diff > 0 else "空頭死叉"
+    macd_status = "趨勢確認" if macd_diff > 0 else "趨勢轉弱"
     macd_color = "#26a69a" if macd_diff > 0 else "#ef5350"
-    macd_desc = "快線穿越慢線，短期動能偏多。" if macd_diff > 0 else "快線跌破慢線，短期動能轉弱。"
+    macd_desc = "MACD 柱狀體翻紅，波段多頭趨勢獲得確認。" if macd_diff > 0 else "MACD 動能放緩，波段可能進入整理期。"
     
+    # --- NEW: SuperTrend Analysis ---
+    st_status = "波段看多" if supertrend_dir == 1 else "波段看空" if supertrend_dir == -1 else "中性"
+    st_color = "#26a69a" if supertrend_dir == 1 else "#ef5350" if supertrend_dir == -1 else "#8B949E"
+    st_desc = "SuperTrend 通道向上，波段操作者建議持股續抱。" if supertrend_dir == 1 else "SuperTrend 轉向，波段趨勢有反轉風險。" if supertrend_dir == -1 else "趨勢尚不明確。"
+
     # 策略建議 (Action Advice Based on Rating)
-    action = "積極買進" if "STRONG BUY" in rating else "建議買進" if "BUY" in rating else "建議放空" if "SELL" in rating else "避開空頭" if "STRONG SELL" in rating else "中性觀望"
-    action_color = "#26a69a" if "BUY" in rating else "#ef5350" if "SELL" in rating else "#58A6FF"
+    action = "波段進場" if "波段強勢" in rating else "趨勢偏多" if "趨勢偏多" in rating else "減碼觀望" if "波段轉弱" in rating else "中性佈局"
+    action_color = "#26a69a" if "趨勢" in action or "波段" in action else "#ef5350" if "轉弱" in action else "#58A6FF"
     
     # 即時信號檢查 (Real-time Signal Check)
-    latest_signal = "目前無明確進場信號。"
+    latest_signal = "目前多指標共振，波段結構穩定。"
+    if supertrend_dir == 1:
+        latest_signal = "🔥 波段共振：趨勢通道看多，波段發動中！"
+    elif supertrend_dir == -1:
+        latest_signal = "⚠️ 波段轉弱：趨勢跌破支撐，建議執行移動停損。"
+
     # 檢查今日是否觸發買賣信號 (Check if today triggers signals)
     if current_date in buy_sigs:
-        latest_signal = "🔥 今日觸發【買入信號】，技術面轉強！"
-        action = "即刻買進"
+        latest_signal = "🚀 今日觸發【波段買點】，技術面全面轉強！"
+        action = "波段進場"
         action_color = "#26a69a"
     elif current_date in sell_sigs:
-        latest_signal = "⚠️ 今日觸發【賣出信號】，注意獲利了結。"
-        action = "即刻賣出"
+        latest_signal = "🔻 今日觸發【波段賣點】，建議獲利了結或停損。"
+        action = "獲利減碼"
         action_color = "#ef5350"
     
+    # 波段具體建議 (Swing Specific Advice)
+    swing_advice = "建議觀察 EMA50 支撐，若不跌破則波段持有。"
+    if supertrend_dir == 1:
+        swing_advice = "多頭波段中，建議以 SuperTrend 線作為移動停利點。"
+    elif rsi > 70:
+        swing_advice = "短線過熱，波段持有者可部分獲利了結，等回測再加碼。"
+    elif rsi < 30:
+        swing_advice = "進入超賣區，波段可開始分批佈局底倉。"
+
     return {
         "rsi": {"val": f"{rsi:.1f}", "status": rsi_status, "color": rsi_color, "desc": rsi_desc},
         "macd": {"val": f"{macd_diff:+.2f}", "status": macd_status, "color": macd_color, "desc": macd_desc},
-        "action": {"status": action, "color": action_color, "desc": latest_signal}
+        "supertrend": {"status": st_status, "color": st_color, "desc": st_desc},
+        "action": {"status": action, "color": action_color, "desc": latest_signal},
+        "swing_advice": swing_advice
     }
 
 def create_tv_gauge(score_val, label, color, m_colors=None):
@@ -450,77 +487,109 @@ def create_tv_gauge(score_val, label, color, m_colors=None):
 
 def calculate_health_scores(ticker_metadata):
     """
-    根據股票元數據計算 1-10 分的財務健康得分 (Calculates 1-10 scores for financial health based on metadata)
+    根據股票元數據計算 1-10 分的五大因子得分 (Calculates 1-10 scores for 5 major factors)
     """
-    # 1. 獲利能力得分 (Profitability Score - Margins)
+    # 1. 獲利能力得分 (Profitability - Margins & ROE)
     pm = ticker_metadata.get('profitMargins', 0) or 0
     roe = ticker_metadata.get('returnOnEquity', 0) or 0
-    p_score = min(10, max(1, int(pm * 20 + roe * 15))) if pm and roe else 5
+    p_score = min(10, max(1, int(pm * 25 + roe * 20))) if pm or roe else 5
     
-    # 2. 槓桿得分 (Leverage Score - Debt to Equity)
+    # 2. 安全性/槓桿得分 (Safety/Leverage - Debt to Equity)
     de = ticker_metadata.get('debtToEquity', 100) or 100
-    l_score = min(10, max(1, 10 - int(de / 40))) if de else 8
+    current_ratio = ticker_metadata.get('currentRatio', 1) or 1
+    l_score = min(10, max(1, 10 - int(de / 40) + int(current_ratio * 2))) if de else 8
     
-    # 3. 現金流得分 (Cash Flow Score)
+    # 3. 現金流得分 (Cash Flow - FCF/Revenue)
     fcf = ticker_metadata.get('freeCashflow', 0) or 0
     rev = ticker_metadata.get('totalRevenue', 1) or 1
-    c_score = min(10, max(1, int((fcf / rev) * 30 + 5))) if fcf and rev else 6
+    c_score = min(10, max(1, int((fcf / rev) * 40 + 4))) if fcf and rev else 6
     
-    return p_score, l_score, c_score
+    # 4. 成長因子 (Growth - Revenue & Earnings Growth)
+    rev_growth = ticker_metadata.get('revenueGrowth', 0) or 0
+    earn_growth = ticker_metadata.get('earningsGrowth', 0) or 0
+    g_score = min(10, max(1, int(rev_growth * 20 + earn_growth * 15 + 5))) if rev_growth or earn_growth else 5
+    
+    # 5. 品質因子 (Quality - Operating Margins & ROIC)
+    op_margin = ticker_metadata.get('operatingMargins', 0) or 0
+    roic = ticker_metadata.get('returnOnAssets', 0) * 2 or 0 # 簡化 ROIC
+    q_score = min(10, max(1, int(op_margin * 30 + roic * 20 + 3))) if op_margin or roic else 6
+    
+    return {
+        "profitability": p_score,
+        "safety": l_score,
+        "cashflow": c_score,
+        "growth": g_score,
+        "quality": q_score
+    }
 
 def optimize_ai_weights(data, rsi_series, ema20, ema50, bb_lower, bb_upper, vr_series, atr_series, health_scores):
     """
-    AI Self-Evolution Engine:
-    Backtests multiple weight combinations on historical data to find the optimal
-    strategy for the specific stock.
+    AI 進化引擎 v2.0 (AI Self-Evolution Engine):
+    - 採用網格搜尋 (Grid Search) 優化技術、基本面、量能權重
+    - 多維度評估：整合準確率 (Accuracy) 與 獲益率 (Profit Factor)
+    - 適應性學習：自動根據個股歷史表現調整預測參數
     """
-    # Define weight candidates (Tech, Fund, Vol)
-    candidates = [
-        (0.6, 0.2, 0.2), (0.4, 0.4, 0.2), (0.4, 0.2, 0.4),
-        (0.3, 0.4, 0.3), (0.5, 0.3, 0.2), (0.2, 0.4, 0.4),
-        (0.33, 0.33, 0.34)
-    ]
+    # 擴展權重組合 (Tech, Fund, Vol)
+    candidates = []
+    for w_t in np.arange(0.2, 0.7, 0.1):
+        for w_f in np.arange(0.1, 0.6, 0.1):
+            w_v = round(1.0 - w_t - w_f, 2)
+            if w_v >= 0.1:
+                candidates.append((round(w_t, 2), round(w_f, 2), w_v))
     
     best_weights = (0.4, 0.3, 0.3)
-    max_accuracy = -1.0
+    max_score = -1.0
     
-    # We only look at the last 60 days for learning to keep it relevant
-    learning_period = 60
+    # 學習週期增加至 120 天，以獲取更穩定的特徵
+    learning_period = 120
     if len(data) < learning_period:
-        return best_weights, 0
+        learning_period = len(data)
         
     test_data = data.iloc[-learning_period:]
     
-    # Simple backtest of candidates
     for w_tech, w_fund, w_vol in candidates:
+        gains = []
         correct_preds = 0
         total_signals = 0
         
-        # Check potential signals in the last 40 days (leaving 20 days for performance check)
-        for i in range(len(test_data) - 20):
-            idx = i
-            # Simulate a simplified entry signal
-            # RSI low + Close near BB lower
-            curr_rsi = rsi_series.iloc[-(learning_period-i)]
+        # 使用滑動窗口進行回測
+        for i in range(len(test_data) - 10):
+            # 模擬進場訊號判定 (結合多個技術指標)
+            curr_rsi = rsi_series.iloc[-(learning_period-i)] if not rsi_series.empty else 50
             curr_close = test_data['Close'].iloc[i]
-            curr_bb_l = bb_lower.iloc[-(learning_period-i)]
+            curr_bb_l = bb_lower.iloc[-(learning_period-i)] if not bb_lower.empty else curr_close * 0.95
+            curr_ema20 = ema20.iloc[-(learning_period-i)] if not ema20.empty else curr_close
             
-            if curr_rsi < 40 or curr_close < curr_bb_l * 1.02:
+            # 觸發條件：RSI 超賣 或 觸及布林下軌 或 股價回測 20MA
+            if curr_rsi < 45 or curr_close < curr_bb_l * 1.01 or curr_close < curr_ema20 * 1.01:
                 total_signals += 1
-                # Check if price went up in next 5 days
-                future_max = test_data['High'].iloc[i+1:i+6].max()
-                if future_max > curr_close * 1.03: # 3% gain target
-                    correct_preds += 1
+                
+                # 檢查未來 5 天表現
+                future_prices = test_data['Close'].iloc[i+1:i+6]
+                if not future_prices.empty:
+                    max_future = future_prices.max()
+                    profit = (max_future - curr_close) / curr_close
+                    gains.append(profit)
+                    
+                    if profit > 0.025: # 2.5% 獲利目標
+                        correct_preds += 1
         
-        accuracy = correct_preds / total_signals if total_signals > 0 else 0
-        if accuracy > max_accuracy:
-            max_accuracy = accuracy
-            best_weights = (w_tech, w_fund, w_vol)
+        if total_signals > 0:
+            accuracy = correct_preds / total_signals
+            avg_gain = np.mean(gains) if gains else 0
+            # 綜合評分：準確率 (60%) + 平均收益 (40%)
+            score = (accuracy * 0.6) + (avg_gain * 40) 
             
-    return best_weights, max_accuracy
+            if score > max_score:
+                max_score = score
+                best_weights = (w_tech, w_fund, w_vol)
+            
+    return best_weights, max_score
 
-def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, win_prob, health_scores, vr, atr, dynamic_weights=None, m_colors=None):
-    """Generates AI-driven entry strategy and price using multi-factor scoring."""
+def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, win_prob, health_scores, vr, atr, supertrend_dir=None, dynamic_weights=None, m_colors=None):
+    """
+    Generates AI-driven entry strategy (Swing Trading Optimized)
+    """
     # 預設顏色方案 (Default colors if m_colors not provided)
     if m_colors is None:
         m_colors = {
@@ -528,58 +597,83 @@ def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, win_prob, health_sc
         }
     
     current_price = float(data['Close'].iloc[-1])
-    p_score, l_score, c_score = health_scores
     
-    # Use dynamic weights if provided, else default
-    w_tech, w_fund, w_vol = dynamic_weights if dynamic_weights else (0.4, 0.3, 0.3)
+    # 因子提取 (Factor Extraction)
+    if isinstance(health_scores, dict):
+        p_score = health_scores.get("profitability", 5)
+        l_score = health_scores.get("safety", 5)
+        c_score = health_scores.get("cashflow", 5)
+        g_score = health_scores.get("growth", 5)
+        q_score = health_scores.get("quality", 5)
+    else:
+        # 兼容舊格式
+        p_score, l_score, c_score = health_scores
+        g_score, q_score = 5, 5
+    
+    # 波段權重調整：更看重趨勢與基本面
+    w_tech, w_fund, w_vol = dynamic_weights if dynamic_weights else (0.45, 0.35, 0.20)
     
     # 1. Technical Score (0-100)
     t_raw = 0
-    if ema20 > ema50: t_raw += 30
-    if rsi < 40: t_raw += 40
-    elif rsi < 60: t_raw += 20
-    if current_price < bb_lower * 1.02: t_raw += 30
+    ema200 = float(data['Close'].ewm(span=200).mean().iloc[-1])
     
-    # 2. Fundamental Score (0-100)
-    f_raw = (p_score + l_score + c_score) / 30 * 100
+    if current_price > ema50 > ema200: t_raw += 40 # 多頭排列核心 (增加權重)
+    if 40 < rsi < 65: t_raw += 25 # 強勢回檔區 (增加權重)
+    
+    # --- NEW: Additional Technical Signals ---
+    if supertrend_dir is not None and supertrend_dir == 1:
+        t_raw += 35 # 增加權重
+    
+    # 2. Fundamental Score (0-100) - 整合 5 大因子
+    f_raw = (p_score + l_score + c_score + g_score + q_score) / 50 * 100
     
     # 3. Volume/Momentum Score (0-100)
     v_raw = 0
-    if vr > 150: v_raw += 60
-    elif vr > 100: v_raw += 30
-    if win_prob > 60: v_raw += 40
+    if vr > 130: v_raw += 40
+    elif vr > 100: v_raw += 20
+    
+    # 新增：量能激增判定 (Volume Surge)
+    vol_ma20 = data['Volume'].rolling(20).mean().iloc[-1]
+    if data['Volume'].iloc[-1] > vol_ma20 * 1.5:
+        v_raw += 20
+        
+    # 新增：價格動能 (Price Momentum)
+    price_change_3d = (current_price - data['Close'].iloc[-4]) / data['Close'].iloc[-4]
+    if price_change_3d > 0.03: v_raw += 20 # 3天漲幅 > 3%
+    
+    if win_prob > 55: v_raw += 20
     
     # Weighted Total Score (Normalized to 0-100)
-    total_score = (t_raw * w_tech) + (f_raw * w_fund) + (v_raw * w_vol)
+    total_score = (min(100, t_raw) * w_tech) + (f_raw * w_fund) + (min(100, v_raw) * w_vol)
     
-    # Decision Logic based on Total Score
-    if total_score > 75:
+    # Decision Logic based on Total Score (Active Trading Mode)
+    if total_score > 60: # 從 70 降至 60
         suggested_price = max(ema20, current_price * 0.99)
         confidence = f"極高 ({total_score:.0f}%)"
-        action = "強力買進"
-        desc = "技術、基本、量能全面看多，建議積極佈局。"
+        action = "積極買入"
+        desc = "多頭動能強勁且基本面優異，適合積極佈局短中線機會。"
         color = "#26a69a"
-    elif total_score > 55:
+    elif total_score > 40: # 從 50 降至 40
         suggested_price = ema20
         confidence = f"高 ({total_score:.0f}%)"
-        action = "分批買進"
-        desc = "趨勢偏多且體質健全，可於支撐位分批承接。"
+        action = "建議試探"
+        desc = "趨勢偏多，可於 20MA 附近建立試探性頭寸。"
         color = "#26a69a"
-    elif total_score > 40:
-        suggested_price = bb_lower
+    elif total_score > 25: # 從 35 降至 25
+        suggested_price = ema20 * 0.98
         confidence = f"中 ({total_score:.0f}%)"
-        action = "等待回檔"
-        desc = "多空力道均衡，建議等候回測關鍵支撐。"
+        action = "少量參與"
+        desc = "目前處於震盪區間，建議少量參與短線反彈。"
         color = "#D29922"
     else:
-        suggested_price = bb_lower * 0.95
+        suggested_price = ema50 * 0.95
         confidence = f"低 ({total_score:.0f}%)"
         action = "保守觀望"
-        desc = "目前條件不佳，建議保持現金部位，靜待趨勢扭轉。"
-        color = "#ef5350"
+        desc = "目前信號強度不足，建議等待更明確的觸發點。"
+        color = "#8B949E"
 
-    # Add Stop Loss suggestion using ATR
-    stop_loss = current_price - (2 * atr)
+    # Add Stop Loss suggestion using ATR (Swing usually uses 2-3 ATR)
+    stop_loss = current_price - (2.5 * atr)
 
     return {
         "price": suggested_price,
@@ -630,59 +724,123 @@ def check_signal_performance(signal_date, suggested_price, signal_type, full_dat
     except:
         return "分析中", "#8B949E", 0
 
-def run_advanced_mc_simulation(current_price, data, ai_score, atr, ticker_metadata=None, days=30, simulations=1000):
+def get_institutional_strategy(data, i, health_scores=None, ema_data=None, vol_ma50=None):
     """
-    重構後的蒙地卡羅模擬引擎 v3.0：
-    - 採用 Student's t-分佈模擬肥尾效應 (Uses Student's t-distribution for fat-tail modeling)
-    - 整合均值回歸 (EMA200) 機制 (Mean Reversion to EMA200)
-    - 多因子漂移率與動態波動率調整 (Multi-factor drift and dynamic volatility)
+    識別知名基金與大師策略 (Identifies famous fund & master strategies)
+    """
+    strategies = []
+    close_prices = data['Close']
+    volumes = data['Volume']
+    
+    # 1. 海龜交易 (Turtle Trading) - 20日突破
+    high_20 = close_prices.iloc[max(0, i-20):i].max()
+    if close_prices.iloc[i] > high_20:
+        strategies.append({"name": "海龜突破", "desc": "Turtle Trading: 20日價格高點突破，趨勢啟動。"})
+        
+    # 2. 米奈爾維尼 (Minervini Trend Template)
+    # 結合基本面 (Quality/Growth) 與技術面 (均線)
+    if ema_data is not None:
+        e50, e150, e200 = ema_data
+        is_trend_template = (close_prices.iloc[i] > e50.iloc[i] > e150.iloc[i] > e200.iloc[i] and 
+                            e200.iloc[i] > e200.iloc[max(0, i-20)])
+        
+        fund_ok = True
+        if health_scores and isinstance(health_scores, dict):
+            # Minervini 偏好高品質成長股
+            if health_scores.get("quality", 5) < 6 or health_scores.get("growth", 5) < 6:
+                fund_ok = False
+        
+        if is_trend_template and fund_ok:
+            strategies.append({"name": "米奈爾維尼", "desc": "Minervini: 均線多頭排列且財務品質優秀，進入第二階段增長。"})
+        
+    # 3. 歐尼爾 (O'Neil CAN SLIM)
+    # C: Current Earnings, A: Annual Earnings (由 health_scores 代表)
+    if vol_ma50 is not None:
+        vol_spike = volumes.iloc[i] > vol_ma50.iloc[i] * 1.5
+        price_up = close_prices.iloc[i] > close_prices.iloc[i-1]
+        
+        fund_ok = True
+        if health_scores and isinstance(health_scores, dict):
+            # CAN SLIM 要求強勁的成長 (Growth)
+            if health_scores.get("growth", 5) < 7:
+                fund_ok = False
+        
+        if price_up and vol_spike and fund_ok:
+            strategies.append({"name": "CAN SLIM", "desc": "O'Neil: 價格帶量突破且具備高成長動能，機構資金介入。"})
+        
+    return strategies
+
+def run_advanced_mc_simulation(current_price, data, ai_score, atr, ticker_metadata=None, supertrend_dir=None, days=30, simulations=1000):
+    """
+    重構後的蒙地卡羅模擬引擎 v4.0 (Advanced MC Engine):
+    - 採用動態波動率 (Dynamic Volatility) 與 EWMA 模型
+    - 整合趨勢加速度 (Trend Acceleration) 與 均值回歸 (EMA200)
+    - 使用 Student's t-分佈模擬肥尾風險，並根據近期偏度調整
     """
     returns = data['Close'].pct_change().dropna()
+    
+    # 1. 動態波動率計算 (EWMA Volatility)
+    # 給予近期波動更高權重，以更精確反應當前市場情緒
+    recent_returns = returns.tail(20)
+    ewma_vol = recent_returns.ewm(span=10).std().iloc[-1]
     hist_vol = returns.std()
     
-    # 1. 計算多因子漂移率 (Drift)
+    # 2. 計算多因子漂移率 (Drift)
     # AI 信心偏誤
-    ai_bias = (ai_score - 50) / 4000 
+    ai_bias = (ai_score - 50) / 3500 
     
-    # 趨勢偏誤 (EMA20 vs EMA50)
-    ema20 = data['Close'].ewm(span=20).mean().iloc[-1]
-    ema50 = data['Close'].ewm(span=50).mean().iloc[-1]
+    # 趨勢強度與加速度 (Trend Strength & Acceleration)
+    ema20_series = data['Close'].ewm(span=20).mean()
+    ema20_slope = (ema20_series.iloc[-1] - ema20_series.iloc[-5]) / ema20_series.iloc[-5]
+    trend_bias = ema20_slope * 0.15 # 將均線斜率轉換為漂移偏誤
+    
+    # SuperTrend 趨勢確認
+    indicator_bias = 0.0012 * supertrend_dir if supertrend_dir is not None else 0
+    
+    # 均值回歸 (Mean Reversion) - 修正項
     ema200 = data['Close'].ewm(span=200).mean().iloc[-1]
-    trend_bias = 0.0015 if ema20 > ema50 else -0.0015
-    
-    # 均值回歸項 (Mean Reversion to EMA200)
-    reversion_strength = 0.05 
+    reversion_strength = 0.08
     dist_from_mean = (ema200 - current_price) / current_price
     reversion_bias = dist_from_mean * reversion_strength / days
     
-    # 法人目標價偏誤 (如有)
+    # 法人目標價影響
     target_bias = 0
     if ticker_metadata and ticker_metadata.get('targetMedianPrice'):
         target_price = ticker_metadata.get('targetMedianPrice')
-        target_dist = (target_price - current_price) / current_price
-        target_bias = target_dist * 0.1 / days
+        if target_price > 0:
+            target_dist = (target_price - current_price) / current_price
+            target_bias = target_dist * 0.15 / days
 
-    mu = returns.mean() + ai_bias + trend_bias + reversion_bias + target_bias
+    # 綜合預期回報率 (Expected Return)
+    mu = returns.mean() + ai_bias + trend_bias + indicator_bias + reversion_bias + target_bias
     
-    # 2. 波動率調整 (Volatility)
-    atr_vol_adj = (atr / current_price) / 1.2
-    vol = max(hist_vol, atr_vol_adj) * 1.1 
+    # 綜合波動率 (Adjusted Volatility)
+    # 考慮 ATR 與 EWMA 波動率的極大值，並針對弱勢行情增加波動溢價
+    atr_vol = (atr / current_price) / np.sqrt(14) # 將 ATR 轉換為每日波動估計
+    base_vol = max(ewma_vol, atr_vol, hist_vol * 0.8)
     
-    # 3. 模擬執行 (使用 Student's t-分佈)
-    df_student = 5 
+    # 若處於空頭市場 (價格 < EMA200)，增加 15% 波動率以反映風險
+    if current_price < ema200:
+        base_vol *= 1.15
+        
+    # 3. 模擬執行 (Student's t-分佈)
+    df_student = 3.5 # 較低的自由度以模擬更頻繁的極端行情 (肥尾)
     sim_results = np.zeros((days + 1, simulations))
     sim_results[0] = current_price
     
-    # 預先生成隨機數
-    random_shocks = student_t.rvs(df=df_student, loc=mu, scale=vol, size=(days, simulations))
+    # 預先生成隨機衝擊
+    random_shocks = student_t.rvs(df=df_student, loc=mu, scale=base_vol, size=(days, simulations))
     
     for t in range(1, days + 1):
+        # 價格演化：幾何布朗運動變體
         sim_results[t] = sim_results[t-1] * (1 + random_shocks[t-1])
-        vol *= np.random.uniform(0.99, 1.01)
+        # 波動率動態調整 (Volatility Clustering)
+        # 隨機調整波動率，模擬波動聚集效應
+        base_vol *= np.random.normal(1.0, 0.01)
         
     return pd.DataFrame(sim_results)
 
-def get_ai_exit_strategy(data, rsi, bb_upper, target_median, atr, m_colors=None):
+def get_ai_exit_strategy(data, rsi, bb_upper, target_median, atr, health_scores=None, supertrend_dir=None, m_colors=None):
     """Generates AI-driven exit strategy and price with dynamic stop-profit."""
     # 預設顏色方案 (Default colors if m_colors not provided)
     if m_colors is None:
@@ -696,44 +854,64 @@ def get_ai_exit_strategy(data, rsi, bb_upper, target_median, atr, m_colors=None)
     # Calculate Dynamic Stop Profit (Trailing Stop)
     trailing_stop = current_price - (1.5 * atr)
     
+    # Fundamental adjustment: If growth and quality are high, be more patient
+    f_bonus = 0
+    if health_scores:
+        if isinstance(health_scores, dict):
+            g_score = health_scores.get("growth", 5)
+            q_score = health_scores.get("quality", 5)
+            # If growth and quality are top-tier (>8), reduce exit urgency
+            if g_score >= 8 and q_score >= 8: f_bonus = -15
+            elif g_score >= 7 or q_score >= 7: f_bonus = -5
+        elif isinstance(health_scores, tuple):
+            # Old format compatibility
+            if health_scores[0] >= 8: f_bonus = -5
+
     # Calculate Exit Score (Higher means more urgent to exit)
     exit_score = 0
     if rsi > 80: exit_score += 40
     elif rsi > 70: exit_score += 25
     elif rsi > 60: exit_score += 10
     
-    if current_price > bb_upper: exit_score += 30
+    if current_price > bb_upper: exit_score += 20
+    
+    # --- NEW: Additional Technical Signals for Exit ---
+    if supertrend_dir is not None and supertrend_dir == -1:
+        exit_score += 15
     
     # Trend weakness
     ema20 = data['Close'].ewm(span=20).mean().iloc[-1]
-    if current_price < ema20: exit_score += 30
+    if current_price < ema20: exit_score += 20
+    
+    # Apply fundamental bonus
+    exit_score += f_bonus
     
     # Normalize score (0-100, where 100 is "Must Sell")
-    exit_score = min(100, exit_score)
+    exit_score = max(0, min(100, exit_score))
     
-    if exit_score > 70:
+    if exit_score > 60: # 從 70 降至 60
         suggested_price = current_price
         confidence = f"極高 ({exit_score:.0f}%)"
         action = "立即獲利"
-        desc = "指標嚴重噴出且超買，建議現價清倉以確保利潤。"
+        desc = "短線指標過熱且趨勢轉弱，建議現價清倉以鎖定利潤。"
         color = m_colors["sell"]
-    elif exit_score > 50:
+    elif exit_score > 40: # 從 50 降至 40
         suggested_price = base_target
         confidence = f"高 ({exit_score:.0f}%)"
         action = "分批獲利"
-        desc = "進入高檔超買區，建議於目標價分批獲利了結。"
+        desc = "股價進入高檔震盪區，建議於壓力位附近開始減碼。"
         color = m_colors["sell"]
-    elif exit_score > 30:
-        suggested_price = max(base_target, current_price * 1.05)
+    elif exit_score > 20: # 從 30 降至 20
+        suggested_price = max(base_target, current_price * 1.02)
         confidence = f"中 ({exit_score:.0f}%)"
-        action = "部分減碼"
-        desc = "股價動能稍緩，建議於壓力區附近減持部分部位。"
+        action = "短線調節"
+        desc = "上升動能稍有放緩，建議適度減持部位，降低風險。"
         color = "#D29922"
     else:
-        suggested_price = max(base_target, current_price * 1.1)
+        suggested_price = max(base_target, current_price * 1.05)
         confidence = f"一般 ({exit_score:.0f}%)"
         action = "續抱觀察"
-        desc = "趨勢尚未轉弱，建議守住移動停利點繼續持有。"
+        desc = "目前趨勢維持良好，建議守住移動停損點，讓利潤繼續奔跑。"
         color = "#58A6FF"
         
     return {
@@ -746,13 +924,14 @@ def get_ai_exit_strategy(data, rsi, bb_upper, target_median, atr, m_colors=None)
         "score": exit_score
     }
 
-def calculate_quant_factors(data, ticker_metadata, rsi_series, atr_series):
+def calculate_quant_factors(data, ticker_metadata, rsi_series, atr_series, supertrend_dir=None, financial_data=None):
     """
-    量化多因子評分系統 (Modularized Quant Multi-Factor Scoring System)
+    量化多因子評分系統 v2.5 (Quant Multi-Factor Scoring System)
+    新增 Quality (品質) 與 Growth (成長) 因子，優化現有因子算法
     """
     factors = {}
     
-    # 1. 趨勢因子 (Trend)
+    # 1. 趨勢因子 (Trend) - 權重: 25%
     close_prices = data['Close']
     ema20 = close_prices.ewm(span=20).mean()
     ema50 = close_prices.ewm(span=50).mean()
@@ -763,28 +942,54 @@ def calculate_quant_factors(data, ticker_metadata, rsi_series, atr_series):
         trend_score = 70
     else:
         trend_score = 40
+    
+    # 結合 SuperTrend
+    if supertrend_dir is not None and supertrend_dir == 1:
+        trend_score = min(100, trend_score + 10)
+    
     factors['趨勢 (Trend)'] = trend_score
     
-    # 2. 動能因子 (Momentum)
+    # 2. 動能因子 (Momentum) - 權重: 15%
     mom_score = float(rsi_series.iloc[-1]) if not rsi_series.empty else 50
     factors['動能 (Momentum)'] = mom_score
     
-    # 3. 波動因子 (Volatility)
+    # 3. 波動因子 (Volatility) - 權重: 10%
     atr_val = float(atr_series.iloc[-1]) if not atr_series.empty else 0
     vol_ratio = (atr_val / close_prices.iloc[-1]) * 100
     vol_score = max(0, 100 - vol_ratio * 15) 
     factors['波動 (Volatility)'] = vol_score
     
-    # 4. 量能因子 (Volume)
+    # 4. 量能因子 (Volume) - 權重: 15%
     v_ma5 = data['Volume'].rolling(5).mean().iloc[-1]
     v_ma20 = data['Volume'].rolling(20).mean().iloc[-1]
     volume_score = min(100, (v_ma5 / v_ma20) * 50) if v_ma20 > 0 else 50
     factors['量能 (Volume)'] = volume_score
     
-    # 5. 價值因子 (Value Factor)
+    # 5. 價值因子 (Value) - 權重: 10%
     pe = ticker_metadata.get('trailingPE') or ticker_metadata.get('forwardPE') or 20
-    value_score = max(0, 100 - pe * 2)
-    factors['價值 (Value)'] = value_score
+    pb = ticker_metadata.get('priceToBook') or 2.0
+    # PE 低於 15 得分較高，PB 低於 1.5 得分較高
+    pe_score = max(0, 100 - pe * 3)
+    pb_score = max(0, 100 - pb * 30)
+    factors['價值 (Value)'] = (pe_score * 0.7 + pb_score * 0.3)
+    
+    # 6. 品質因子 (Quality) - 權重: 15%
+    roe = ticker_metadata.get('returnOnEquity', 0) or 0
+    profit_margin = ticker_metadata.get('profitMargins', 0) or 0
+    debt_equity = ticker_metadata.get('debtToEquity', 100) or 100
+    
+    roe_score = min(100, roe * 400) # ROE 25% 為滿分
+    margin_score = min(100, profit_margin * 500) # 利潤率 20% 為滿分
+    debt_score = max(0, 100 - debt_equity / 2) # 債務權益比低於 50 得分較高
+    factors['品質 (Quality)'] = (roe_score * 0.4 + margin_score * 0.3 + debt_score * 0.3)
+    
+    # 7. 成長因子 (Growth) - 權重: 10%
+    growth_score = 50
+    if financial_data is not None and len(financial_data) >= 2:
+        rev_growth = (financial_data['Total Revenue'].iloc[-1] / financial_data['Total Revenue'].iloc[-2] - 1) * 100
+        ni_growth = (financial_data['Net Income'].iloc[-1] / financial_data['Net Income'].iloc[-2] - 1) * 100
+        growth_score = min(100, max(0, 50 + rev_growth + ni_growth))
+    factors['成長 (Growth)'] = growth_score
     
     return factors
 
@@ -926,7 +1131,10 @@ if ticker_input:
         except:
             market_corr, market_beta, relative_strength = 0, 1.0, 0
 
-        p_score, l_score, c_score = calculate_health_scores(ticker_metadata)
+        health_scores = calculate_health_scores(ticker_metadata)
+        p_score = health_scores["profitability"]
+        l_score = health_scores["safety"]
+        c_score = health_scores["cashflow"]
         
         # Update header placeholder with stock name and ticker
         ticker_display_name = ticker_metadata.get('shortName') or ticker_metadata.get('longName') or resolved_ticker
@@ -976,49 +1184,111 @@ if ticker_input:
         
         # ATR (Average True Range) for Volatility
         def calculate_atr(df, n=14):
-            high_low = df['High'] - df['Low']
-            high_cp = abs(df['High'] - df['Close'].shift())
-            low_cp = abs(df['Low'] - df['Close'].shift())
-            tr = pd.concat([high_low, high_cp, low_cp], axis=1).max(axis=1)
-            atr = tr.rolling(window=n).mean()
-            return atr
+            try:
+                high_low = df['High'] - df['Low']
+                high_cp = abs(df['High'] - df['Close'].shift())
+                low_cp = abs(df['Low'] - df['Close'].shift())
+                tr = pd.concat([high_low, high_cp, low_cp], axis=1).max(axis=1)
+                atr = tr.rolling(window=n).mean()
+                return atr
+            except Exception as e:
+                st.error(f"ATR 計算出錯: {e}")
+                return pd.Series(0, index=df.index)
+
         atr_series = calculate_atr(data)
+
+        # --- NEW: SuperTrend Indicator ---
+        def calculate_supertrend(df, atr_s, multiplier=3):
+            try:
+                hl2 = (df['High'] + df['Low']) / 2
+                upperband = hl2 + (multiplier * atr_s)
+                lowerband = hl2 - (multiplier * atr_s)
+                
+                supertrend = pd.Series(index=df.index, dtype=float)
+                direction = pd.Series(index=df.index, dtype=int) # 1 for up, -1 for down
+                
+                # Initialize
+                supertrend.iloc[0] = upperband.iloc[0]
+                direction.iloc[0] = -1
+                
+                for i in range(1, len(df)):
+                    if direction.iloc[i-1] == 1: # Previous trend was up
+                        if df['Close'].iloc[i] < lowerband.iloc[i-1]:
+                            direction.iloc[i] = -1
+                            supertrend.iloc[i] = upperband.iloc[i]
+                        else:
+                            direction.iloc[i] = 1
+                            supertrend.iloc[i] = max(lowerband.iloc[i], lowerband.iloc[i-1])
+                    else: # Previous trend was down
+                        if df['Close'].iloc[i] > upperband.iloc[i-1]:
+                            direction.iloc[i] = 1
+                            supertrend.iloc[i] = lowerband.iloc[i]
+                        else:
+                            direction.iloc[i] = -1
+                            supertrend.iloc[i] = min(upperband.iloc[i], upperband.iloc[i-1])
+                return supertrend, direction
+            except Exception as e:
+                st.error(f"SuperTrend 計算出錯: {e}")
+                return pd.Series(0, index=df.index), pd.Series(0, index=df.index)
+
+        supertrend_line, supertrend_dir = calculate_supertrend(data, atr_series)
         
         # --- AI Self-Evolution (Calculated early for signal filtering) ---
         with st.spinner(f"AI 正在針對 {resolved_ticker} 進行自我進化優化..."):
             best_weights, learn_acc = optimize_ai_weights(
-                data, rsi_series, ema20, ema50, bb_lower, bb_upper, vr_series, atr_series, (p_score, l_score, c_score)
+                data, rsi_series, ema20, ema50, bb_lower, bb_upper, vr_series, atr_series, health_scores
             )
             
             # Initial score for drift calculation and signal filtering
             initial_ai_strat = get_ai_entry_strategy(
                 data, float(rsi_series.iloc[-1]), float(ema20.iloc[-1]), float(ema50.iloc[-1]), 
-                float(bb_lower.iloc[-1]), 50, (p_score, l_score, c_score), 
-                float(vr_series.iloc[-1]), float(atr_series.iloc[-1]), dynamic_weights=best_weights
+                float(bb_lower.iloc[-1]), 50, health_scores, 
+                float(vr_series.iloc[-1]), float(atr_series.iloc[-1]), 
+                supertrend_dir=supertrend_dir.iloc[-1],
+                dynamic_weights=best_weights
             )
             ai_score = initial_ai_strat['score']
 
         # Calculate Buy/Sell Signals with AI + Multi-Factor Confirmation
         all_signals = []
         vol_ma5 = data['Volume'].rolling(window=5).mean()
+        vol_ma50 = data['Volume'].rolling(window=50).mean()
+        
+        # 預計算機構策略所需的指標
+        e50 = data['Close'].ewm(span=50).mean()
+        e150 = data['Close'].ewm(span=150).mean()
+        e200 = data['Close'].ewm(span=200).mean()
+        ema_data = (e50, e150, e200)
+        
         target_median = ticker_metadata.get('targetMedianPrice', None)
         
         # 遍歷數據生成信號 (Iterate to generate signals)
-        for i in range(20, len(data)): # 從 20 開始確保有足夠的 MA 數據 (Ensure enough data for MAs)
+        for i in range(20, len(data)): # 從 20 開始確保有足夠의 MA 數據 (Ensure enough data for MAs)
             d = data.index[i]
             
-            # --- 基礎技術指標過濾 (Basic Technical Filters) ---
+            # 機構策略識別 (Institutional Strategy Identification)
+            inst_strats = get_institutional_strategy(data, i, health_scores=health_scores, ema_data=ema_data, vol_ma50=vol_ma50)
+            
+            # --- 基礎技術指標過濾 (Basic Technical Filters - Loosened for more entries) ---
             macd_gold = macd_series.iloc[i] > signal_series.iloc[i] and macd_series.iloc[i-1] <= signal_series.iloc[i-1]
             rsi_buy = rsi_series.iloc[i] > 30 and rsi_series.iloc[i-1] <= 30
-            trend_ok_buy = data['Close'].iloc[i] > ema20.iloc[i]
-            vol_ok = data['Volume'].iloc[i] > (vol_ma5.iloc[i] * 1.1)
+            kd_gold = k_series.iloc[i] > d_series.iloc[i] and k_series.iloc[i-1] <= d_series.iloc[i-1]
+            bb_touch_low = data['Low'].iloc[i] <= bb_lower.iloc[i]
+            
+            # 買入條件放寬：滿足任一技術指標金叉，且價格高於 20MA 或 正在反彈 (KD 金叉)
+            trend_ok_buy = data['Close'].iloc[i] > ema20.iloc[i] or kd_gold
+            vol_ok = data['Volume'].iloc[i] > vol_ma5.iloc[i] # 降低成交量門檻，從 1.1x 降至 1.0x
             
             macd_death = macd_series.iloc[i] < signal_series.iloc[i] and macd_series.iloc[i-1] >= signal_series.iloc[i-1]
             rsi_sell = rsi_series.iloc[i] < 70 and rsi_series.iloc[i-1] >= 70
-            trend_ok_sell = data['Close'].iloc[i] < ema20.iloc[i]
+            kd_death = k_series.iloc[i] < d_series.iloc[i] and k_series.iloc[i-1] >= d_series.iloc[i-1]
+            bb_touch_high = data['High'].iloc[i] >= bb_upper.iloc[i]
+            
+            # 賣出條件放寬
+            trend_ok_sell = data['Close'].iloc[i] < ema20.iloc[i] or kd_death or bb_touch_high
 
             # --- 買入信號處理 (Buy Signal Processing) ---
-            if (macd_gold or rsi_buy) and trend_ok_buy and vol_ok:
+            if (macd_gold or rsi_buy or kd_gold or bb_touch_low) and trend_ok_buy and vol_ok:
                 try:
                     h_rsi = float(rsi_series.iloc[i])
                     h_ema20 = float(ema20.iloc[i])
@@ -1028,42 +1298,59 @@ if ticker_input:
                     h_atr = float(atr_series.iloc[i])
                     
                     # 計算該時間點的 AI 買入評分
-                    h_ai = get_ai_entry_strategy(data.iloc[:i+1], h_rsi, h_ema20, h_ema50, h_bb_lower, 55, (p_score, l_score, c_score), h_vr, h_atr, dynamic_weights=best_weights, m_colors=m_colors)
+                    h_ai = get_ai_entry_strategy(
+                        data.iloc[:i+1], h_rsi, h_ema20, h_ema50, h_bb_lower, 55, health_scores, h_vr, h_atr, 
+                        supertrend_dir=supertrend_dir.iloc[i],
+                        dynamic_weights=best_weights, 
+                        m_colors=m_colors
+                    )
                     h_score = h_ai.get('score', 0)
                     
                     # 績效追蹤
                     perf_status, perf_color, perf_pct = check_signal_performance(d, h_ai['price'], "買入", data, m_colors=m_colors)
                     
-                    price_val = float(data['Close'].iloc[i])
-                    all_signals.append({
-                        "date": d, "type": "買入", "price": price_val, "color": m_colors["buy"], "icon": "🔼",
-                        "ai_price": h_ai['price'], "ai_action": h_ai['action'], "stop_loss": h_ai['stop_loss'],
-                        "perf_status": perf_status, "perf_color": perf_color, "perf_pct": perf_pct,
-                        "ai_verified": h_score >= 60, "ai_score": h_score
-                    })
+                    # 只有當 AI 評分高於一定閾值，或者動作不是「觀望」時才加入信號流水線
+                    # 降低顯示閾值以增加信號頻率 (從 45 降至 35)
+                    if h_score >= 35 or h_ai['action'] != "保守觀望" or len(inst_strats) > 0:
+                        price_val = float(data['Close'].iloc[i])
+                        # 波段優選邏輯：AI 高分 + 大師策略共振
+                        is_swing_prime = h_score >= 60 and len(inst_strats) >= 1
+                        
+                        all_signals.append({
+                            "date": d, "type": "買入", "price": price_val, "color": m_colors["buy"], "icon": "🔼",
+                            "ai_price": h_ai['price'], "ai_action": h_ai['action'], "stop_loss": h_ai['stop_loss'],
+                            "perf_status": perf_status, "perf_color": perf_color, "perf_pct": perf_pct,
+                            "ai_verified": h_score >= 60, "ai_score": h_score,
+                            "inst_strategies": inst_strats,
+                            "is_swing_prime": is_swing_prime
+                        })
                 except: continue
 
             # --- 賣出信號處理 (Sell Signal Processing) ---
-            if (macd_death or rsi_sell) and trend_ok_sell:
+            if (macd_death or rsi_sell or kd_death or bb_touch_high) and trend_ok_sell:
                 try:
                     h_rsi = float(rsi_series.iloc[i])
                     h_bb_upper = float(bb_upper.iloc[i])
                     h_atr = float(atr_series.iloc[i])
                     
                     # 計算該時間點的 AI 賣出評分
-                    h_ai = get_ai_exit_strategy(data.iloc[:i+1], h_rsi, h_bb_upper, target_median, h_atr, m_colors=m_colors)
+                    h_ai = get_ai_exit_strategy(data.iloc[:i+1], h_rsi, h_bb_upper, target_median, h_atr, health_scores=health_scores, m_colors=m_colors)
                     h_score = h_ai.get('score', 0)
                     
                     # 績效追蹤
                     perf_status, perf_color, perf_pct = check_signal_performance(d, h_ai['price'], "賣出", data, m_colors=m_colors)
                     
-                    price_val = float(data['Close'].iloc[i])
-                    all_signals.append({
-                        "date": d, "type": "賣出", "price": price_val, "color": m_colors["sell"], "icon": "🔽",
-                        "ai_price": h_ai['price'], "ai_action": h_ai['action'], "trailing_stop": h_ai.get('trailing_stop', 0),
-                        "perf_status": perf_status, "perf_color": perf_color, "perf_pct": perf_pct,
-                        "ai_verified": h_score >= 60, "ai_score": h_score
-                    })
+                    # 只有當 AI 評分高於一定閾值，或者動作不是「續抱」時才加入信號流水線
+                    # 降低顯示閾值 (從 40 降至 30)
+                    if h_score >= 30 or h_ai['action'] != "續抱觀察":
+                        price_val = float(data['Close'].iloc[i])
+                        all_signals.append({
+                            "date": d, "type": "賣出", "price": price_val, "color": m_colors["sell"], "icon": "🔽",
+                            "ai_price": h_ai['price'], "ai_action": h_ai['action'], "trailing_stop": h_ai.get('trailing_stop', 0),
+                            "perf_status": perf_status, "perf_color": perf_color, "perf_pct": perf_pct,
+                            "ai_verified": h_score >= 60, "ai_score": h_score,
+                            "inst_strategies": inst_strats
+                        })
                 except: continue
         
         # 過濾出最近 30 天的信號用於 UI 顯示
@@ -1103,7 +1390,11 @@ if ticker_input:
             st.metric("當日最高", f"{day_high}" if isinstance(day_high, (int, float)) else "N/A")
 
         # 技術面評分徽章 (Technical Rating Badge)
-        sig_text, sig_color, sig_val = get_signal_score(data, float(rsi_series.iloc[-1]), float(macd_series.iloc[-1]), float(signal_series.iloc[-1]), m_colors=m_colors)
+        sig_text, sig_color, sig_val = get_signal_score(
+            data, float(rsi_series.iloc[-1]), float(macd_series.iloc[-1]), float(signal_series.iloc[-1]), 
+            supertrend_dir=supertrend_dir.iloc[-1], 
+            m_colors=m_colors
+        )
         
         st.markdown("---")
         
@@ -1112,7 +1403,9 @@ if ticker_input:
             atr = float(atr_series.iloc[-1])
             
             sim_df_full = run_advanced_mc_simulation(
-                current_price, data, ai_score, atr, ticker_metadata=ticker_metadata, days=30, simulations=1000
+                current_price, data, ai_score, atr, ticker_metadata=ticker_metadata, 
+                supertrend_dir=supertrend_dir.iloc[-1],
+                days=60, simulations=1000
             )
             
             # 將關鍵數據存入 session_state 以確保在不同分頁間切換時數據不會消失
@@ -1131,7 +1424,7 @@ if ticker_input:
             # AI 進出場策略計算 (AI Entry/Exit Strategy Calculation)
             entry_strategy = get_ai_entry_strategy(
                 data, float(rsi_series.iloc[-1]), float(ema20.iloc[-1]), float(ema50.iloc[-1]), 
-                float(bb_lower.iloc[-1]), win_prob_7d, (p_score, l_score, c_score), 
+                float(bb_lower.iloc[-1]), win_prob_7d, health_scores, 
                 float(vr_series.iloc[-1]), float(atr_series.iloc[-1]), dynamic_weights=best_weights,
                 m_colors=m_colors
             )
@@ -1139,7 +1432,7 @@ if ticker_input:
             target_median = ticker_metadata.get('targetMedianPrice', None)
             exit_strategy = get_ai_exit_strategy(
                 data, float(rsi_series.iloc[-1]), float(bb_upper.iloc[-1]), 
-                target_median, float(atr_series.iloc[-1]), m_colors=m_colors
+                target_median, float(atr_series.iloc[-1]), health_scores=health_scores, m_colors=m_colors
             )
             
         tab1, tab2, tab3, tab4, tab5 = st.tabs([t["tab_overview"], t["tab_tech"], t["tab_predict"], t["tab_signals"], t["tab_news"]])
@@ -1156,6 +1449,7 @@ if ticker_input:
                 buy_signals, 
                 sell_signals, 
                 data.index[-1],
+                supertrend_dir=supertrend_dir.iloc[-1],
                 m_colors=m_colors
             )
             
@@ -1201,7 +1495,7 @@ if ticker_input:
                         <div style="color: #E0E0E0; font-size: 0.7rem; line-height: 1.2;">{insight_report['action']['desc']}</div>
                     </div>
                 ''', unsafe_allow_html=True)
-            
+
             with rec_col2:
                 st.markdown(f'''
                     <div style="background: rgba(63, 185, 80, 0.05); padding: 12px; border-radius: 8px; border-left: 5px solid {entry_strategy['color']}; height: 135px; border: 1px solid {entry_strategy['color']}33;">
@@ -1241,7 +1535,12 @@ if ticker_input:
                 ''', unsafe_allow_html=True)
 
             # Overview Tab: Advanced Plotly Chart
-            quant_factors = calculate_quant_factors(data, ticker_metadata, rsi_series, atr_series)
+            financial_data = get_financial_data(resolved_ticker)
+            quant_factors = calculate_quant_factors(
+                data, ticker_metadata, rsi_series, atr_series, 
+                supertrend_dir=supertrend_dir.iloc[-1], 
+                financial_data=financial_data
+            )
             
             col_chart, col_quant = st.columns([2, 1])
             
@@ -1261,6 +1560,16 @@ if ticker_input:
                 fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(window=20).mean(), name='20日均線', line=dict(color='#2962FF', width=1.5)), row=1, col=1)
                 fig.add_trace(go.Scatter(x=data.index, y=data['Close'].rolling(window=50).mean(), name='50日均線', line=dict(color='#FF6D00', width=1.5)), row=1, col=1)
 
+                # --- NEW: SuperTrend on Chart ---
+                # SuperTrend
+                st_colors = [m_colors["up"] if d == 1 else m_colors["down"] for d in supertrend_dir]
+                fig.add_trace(go.Scatter(
+                    x=data.index, y=supertrend_line, 
+                    name='SuperTrend', 
+                    line=dict(color='rgba(255, 255, 255, 0.5)', width=2, dash='dot'),
+                    mode='lines'
+                ), row=1, col=1)
+
                 # Volume
                 v_colors = [m_colors["up"] if row['Close'] >= row['Open'] else m_colors["down"] for index, row in data.iterrows()]
                 fig.add_trace(go.Bar(x=data.index, y=data['Volume'], name='成交量', marker_color=v_colors, opacity=0.5), row=2, col=1)
@@ -1277,7 +1586,7 @@ if ticker_input:
                 fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#30363D', zeroline=False)
                 fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#30363D', zeroline=False)
                 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
             with col_quant:
                 # 量化評分雷達圖
@@ -1307,7 +1616,7 @@ if ticker_input:
                     paper_bgcolor='rgba(0,0,0,0)',
                     plot_bgcolor='rgba(0,0,0,0)'
                 )
-                st.plotly_chart(fig_radar, use_container_width=True)
+                st.plotly_chart(fig_radar, width="stretch")
                 
                 # 綜合評分顯示
                 avg_score = sum(values) / len(values)
@@ -1356,7 +1665,7 @@ if ticker_input:
             col_gauge, col_stats_data = st.columns([1, 2])
             
             with col_gauge:
-                st.plotly_chart(create_tv_gauge(sig_val, sig_text, sig_color, m_colors=m_colors), use_container_width=True)
+                st.plotly_chart(create_tv_gauge(sig_val, sig_text, sig_color, m_colors=m_colors), width="stretch")
             
             with col_stats_data:
                 # 根據健康得分定義動態樣式 (Define dynamic styling based on health scores)
@@ -1443,6 +1752,7 @@ if ticker_input:
                 buy_signals, 
                 sell_signals, 
                 data.index[-1],
+                supertrend_dir=supertrend_dir.iloc[-1],
                 m_colors=m_colors
             )
             
@@ -1469,6 +1779,14 @@ if ticker_input:
             <div style="font-size: 1.5rem; font-weight: bold; color: #FFFFFF; margin-bottom: 5px;">{insight_report['macd']['val']}</div>
             <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.4;">{insight_report['macd']['desc']}</div>
         </div>
+        <div style="background: rgba(48, 54, 61, 0.2); padding: 15px; border-radius: 6px; border-left: 3px solid {insight_report['supertrend']['color']};">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span style="color: #8B949E; font-size: 0.8rem;">SuperTrend</span>
+                <span style="background: {insight_report['supertrend']['color']}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: bold;">{insight_report['supertrend']['status']}</span>
+            </div>
+            <div style="font-size: 1.5rem; font-weight: bold; color: #FFFFFF; margin-bottom: 5px;">{insight_report['supertrend']['status']}</div>
+            <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.4;">{insight_report['supertrend']['desc']}</div>
+        </div>
         <div style="background: rgba(88, 166, 255, 0.1); padding: 15px; border-radius: 6px; border: 1px dashed #58A6FF;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <span style="color: #58A6FF; font-size: 0.8rem; font-weight: bold;">AI 建議佈局</span>
@@ -1476,6 +1794,14 @@ if ticker_input:
             </div>
             <div style="font-size: 1rem; color: #FFFFFF; font-weight: 500; margin-bottom: 5px;">策略部署 (信心:{entry_strategy['confidence']})</div>
             <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.4;">{entry_strategy['desc']}</div>
+        </div>
+        <div style="background: rgba(255, 215, 0, 0.1); padding: 15px; border-radius: 6px; border: 1px solid #FFD70044;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span style="color: #FFD700; font-size: 0.8rem; font-weight: bold;">波段操作建議</span>
+                <span style="font-size: 1.2rem;">💡</span>
+            </div>
+            <div style="font-size: 1rem; color: #FFFFFF; font-weight: 500; margin-bottom: 5px;">操作方針</div>
+            <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.4;">{insight_report['swing_advice']}</div>
         </div>
     </div>
 </div>
@@ -1486,28 +1812,38 @@ if ticker_input:
             st.markdown(f'''
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
     <div class="data-card" style="margin-bottom: 0; padding: 15px; border-left: 3px solid #58A6FF;">
-        <div style="color: #8B949E; font-size: 0.75rem;">EMA 趨勢狀態</div>
-        <div style="font-size: 1.1rem; font-weight: bold; margin: 5px 0;">{'多頭排列' if ema20.iloc[-1] > ema50.iloc[-1] > ema200.iloc[-1] else '趨勢不明' if ema20.iloc[-1] > ema50.iloc[-1] else '空頭趨勢'}</div>
-        <div style="color: #26a69a; font-size: 0.7rem;">EMA200 支撐: {ema200.iloc[-1]:.2f}</div>
+        <div style="color: #8B949E; font-size: 0.75rem;">EMA 趨勢狀態 (波段)</div>
+        <div style="font-size: 1.1rem; font-weight: bold; margin: 5px 0;">
+            {'🔥 多頭排列 (主升段)' if ema20.iloc[-1] > ema50.iloc[-1] > ema200.iloc[-1] else 
+             '📈 偏多整理 (初升/回測)' if ema20.iloc[-1] > ema50.iloc[-1] else 
+             '❄️ 空頭排列 (主跌段)' if ema20.iloc[-1] < ema50.iloc[-1] < ema200.iloc[-1] else 
+             '🔄 趨勢轉折/震盪'}
+        </div>
+        <div style="color: #26a69a; font-size: 0.7rem;">EMA200 波段支撐: {ema200.iloc[-1]:.2f}</div>
     </div>
     <div class="data-card" style="margin-bottom: 0; padding: 15px; border-left: 3px solid #BC8CF2;">
-        <div style="color: #8B949E; font-size: 0.75rem;">布林帶寬 (BBW)</div>
+        <div style="color: #8B949E; font-size: 0.75rem;">布林帶寬 (波段波動)</div>
         <div style="font-size: 1.1rem; font-weight: bold; margin: 5px 0;">{((bb_upper.iloc[-1] - bb_lower.iloc[-1]) / ma20.iloc[-1] * 100):.2f}%</div>
-        <div style="color: #8B949E; font-size: 0.7rem;">{'波動擠壓中' if (bb_upper.iloc[-1] - bb_lower.iloc[-1]) < (bb_upper.rolling(100).mean().iloc[-1] - bb_lower.rolling(100).mean().iloc[-1]) else '波動擴張中'}</div>
+        <div style="color: #8B949E; font-size: 0.7rem;">{'壓縮中 (醞釀變盤)' if (bb_upper.iloc[-1] - bb_lower.iloc[-1]) < (bb_upper.rolling(100).mean().iloc[-1] - bb_lower.rolling(100).mean().iloc[-1]) else '擴張中 (波段進行)'}</div>
     </div>
     <div class="data-card" style="margin-bottom: 0; padding: 15px; border-left: 3px solid {"#26a69a" if rsi_series.iloc[-1] < 30 else "#ef5350" if rsi_series.iloc[-1] > 70 else '#8B949E'};">
-        <div style="color: #8B949E; font-size: 0.75rem;">RSI 乖離率</div>
+        <div style="color: #8B949E; font-size: 0.75rem;">RSI 強度 (波段)</div>
         <div style="font-size: 1.1rem; font-weight: bold; margin: 5px 0;">{rsi_series.iloc[-1]:.1f}</div>
-        <div style="color: {"#ef5350" if rsi_series.iloc[-1] > 70 else "#26a69a" if rsi_series.iloc[-1] < 30 else '#8B949E'}; font-size: 0.7rem;">
-            {'超買區域' if rsi_series.iloc[-1] > 70 else '超賣區域' if rsi_series.iloc[-1] < 30 else '中性區間'}
+        <div style="color: {"#ef5350" if rsi_series.iloc[-1] > 60 else "#26a69a" if rsi_series.iloc[-1] < 40 else '#8B949E'}; font-size: 0.7rem;">
+            {'強勢區域' if rsi_series.iloc[-1] > 60 else '弱勢區域' if rsi_series.iloc[-1] < 40 else '中性區間'}
         </div>
     </div>
     <div class="data-card" style="margin-bottom: 0; padding: 15px; border-left: 3px solid {"#ef5350" if vr_series.iloc[-1] > 160 else "#26a69a" if vr_series.iloc[-1] < 70 else '#FF6D00'};">
-        <div style="color: #8B949E; font-size: 0.75rem;">VR 容量比率</div>
+        <div style="color: #8B949E; font-size: 0.75rem;">VR 成交量比 (波段)</div>
         <div style="font-size: 1.1rem; font-weight: bold; margin: 5px 0;">{vr_series.iloc[-1]:.1f}%</div>
         <div style="color: {"#ef5350" if vr_series.iloc[-1] > 160 else "#26a69a" if vr_series.iloc[-1] < 70 else '#8B949E'}; font-size: 0.7rem;">
-            {'過熱區域' if vr_series.iloc[-1] > 160 else '低迷區域' if vr_series.iloc[-1] < 70 else '常態區間'}
+            {'量能過熱' if vr_series.iloc[-1] > 160 else '量能低迷' if vr_series.iloc[-1] < 70 else '量能溫和'}
         </div>
+    </div>
+    <div class="data-card" style="margin-bottom: 0; padding: 15px; border-left: 3px solid {"#26a69a" if supertrend_dir.iloc[-1] == 1 else "#ef5350"};">
+        <div style="color: #8B949E; font-size: 0.75rem;">SuperTrend 波段方向</div>
+        <div style="font-size: 1.1rem; font-weight: bold; margin: 5px 0;">{'🟢 多頭趨勢' if supertrend_dir.iloc[-1] == 1 else '🔴 空頭趨勢'}</div>
+        <div style="color: #8B949E; font-size: 0.7rem;">波段防守位: {supertrend_line.iloc[-1]:.2f}</div>
     </div>
 </div>
 ''', unsafe_allow_html=True)
@@ -1527,6 +1863,9 @@ if ticker_input:
             fig_tech.add_trace(go.Scatter(x=data.index, y=ema50, name='EMA 50', line=dict(color='#BC8CF2', width=1, dash='dot')))
             fig_tech.add_trace(go.Scatter(x=data.index, y=ema200, name='EMA 200', line=dict(color='#FF6D00', width=1.5)))
 
+            # SuperTrend
+            fig_tech.add_trace(go.Scatter(x=data.index, y=supertrend_line, name='SuperTrend', line=dict(color='rgba(255, 255, 255, 0.4)', width=1, dash='dash')))
+
             fig_tech.update_layout(
                 title="EMA 趨勢與布林通道分析",
                 template="plotly_dark", height=450,
@@ -1534,7 +1873,7 @@ if ticker_input:
                 margin=dict(l=10, r=10, t=40, b=10),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
-            st.plotly_chart(fig_tech, use_container_width=True)
+            st.plotly_chart(fig_tech, width="stretch")
 
             col_rsi, col_macd = st.columns(2)
             with col_rsi:
@@ -1548,7 +1887,7 @@ if ticker_input:
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=10, r=10, t=40, b=10)
                 )
-                st.plotly_chart(fig_rsi, use_container_width=True)
+                st.plotly_chart(fig_rsi, width="stretch")
             
             with col_macd:
                 # MACD Chart
@@ -1563,7 +1902,7 @@ if ticker_input:
                     margin=dict(l=10, r=10, t=40, b=10),
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
-                st.plotly_chart(fig_macd, use_container_width=True)
+                st.plotly_chart(fig_macd, width="stretch")
 
             col_kd, col_vr = st.columns(2)
             with col_kd:
@@ -1579,7 +1918,7 @@ if ticker_input:
                     margin=dict(l=10, r=10, t=40, b=10),
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
-                st.plotly_chart(fig_kd, use_container_width=True)
+                st.plotly_chart(fig_kd, width="stretch")
             
             with col_vr:
                 # VR Chart
@@ -1592,7 +1931,7 @@ if ticker_input:
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=10, r=10, t=40, b=10)
                 )
-                st.plotly_chart(fig_vr, use_container_width=True)
+                st.plotly_chart(fig_vr, width="stretch")
 
         with tab3:
             # Prediction Page: Enhanced Monte Carlo & Forecast
@@ -1667,7 +2006,7 @@ if ticker_input:
                 ))
                 
                 fig_mc.update_layout(
-                    title=dict(text=f"<b>{resolved_ticker} 未來 30 日機率分佈預測 (t-分佈 + 均值回歸)</b>", font=dict(size=16, color="#C9D1D9")),
+                    title=dict(text=f"<b>{resolved_ticker} 未來 60 日波段路徑機率分佈預測 (AI 增強版)</b>", font=dict(size=16, color="#C9D1D9")),
                     xaxis_title="日期",
                     yaxis_title="價格",
                     template="plotly_dark",
@@ -1679,7 +2018,7 @@ if ticker_input:
                     plot_bgcolor="rgba(0,0,0,0)"
                 )
                 
-                st.plotly_chart(fig_mc, use_container_width=True, key=f"mc_chart_{resolved_ticker}", theme="streamlit")
+                st.plotly_chart(fig_mc, width="stretch", key=f"mc_chart_{resolved_ticker}", theme="streamlit")
                 
                 # 模擬指標面板 (更新為更豐富的數據)
                 st.markdown("<div style=\"margin-top: -20px;\"></div>", unsafe_allow_html=True)
@@ -1782,12 +2121,24 @@ if ticker_input:
                 col_sig_list, col_sig_stats = st.columns([2, 1])
                 
                 with col_sig_list:
-                    st.markdown('<p style="color: #8B949E; font-size: 0.9rem; margin-bottom: 20px; font-weight: 500;">📅 近期觸發信號流水線 (30天內)</p>', unsafe_allow_html=True)
+                    st.markdown('<p style="color: #8B949E; font-size: 0.9rem; margin-bottom: 10px; font-weight: 500;">📅 近期觸發信號流水線 (AI + 大師策略)</p>', unsafe_allow_html=True)
+                    
+                    # 篩選選項 (Filter Options)
+                    sig_filter = st.radio("信號篩選", ["全部信號", "波段優選", "大師策略優先", "僅顯示買入"], horizontal=True, label_visibility="collapsed")
+                    
+                    filtered_signals = latest_signals
+                    if sig_filter == "大師策略優先":
+                        # 將有策略的信號排在前面
+                        filtered_signals = sorted(latest_signals, key=lambda x: len(x.get('inst_strategies', [])), reverse=True)
+                    elif sig_filter == "波段優選":
+                        filtered_signals = [s for s in latest_signals if s.get('is_swing_prime', False)]
+                    elif sig_filter == "僅顯示買入":
+                        filtered_signals = [s for s in latest_signals if s['type'] == "買入"]
                     
                     # Start Timeline Container
                     timeline_html = '<div style="position: relative; padding-left: 20px; border-left: 2px solid #30363D; margin-left: 10px;">'
                     
-                    for i, s in enumerate(latest_signals[:10]):
+                    for i, s in enumerate(filtered_signals[:15]): # 增加顯示數量到 15 個
                         # Calculate relative days
                         days_ago = (datetime.now().date() - s['date'].date()).days
                         time_str = "今天" if days_ago == 0 else f"{days_ago} 天前"
@@ -1800,9 +2151,29 @@ if ticker_input:
                         ai_score_val = s.get('ai_score', 0)
                         ai_badge = f'<span style="background: rgba(88, 166, 255, 0.1); color: #58A6FF; font-size: 0.65rem; padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(88, 166, 255, 0.3); font-weight: 600; margin-left: 5px;">🤖 AI 認證 ({ai_score_val:.0f})</span>' if s.get('ai_verified') else f'<span style="color: #8B949E; font-size: 0.65rem; margin-left: 5px;">AI 評分: {ai_score_val:.0f}</span>'
                         
+                        # 知名基金策略標籤與共振識別
+                        inst_html = ""
+                        strategies = s.get('inst_strategies', [])
+                        is_resonance = len(strategies) >= 2
+                        is_swing_prime = s.get('is_swing_prime', False)
+                        
+                        if is_swing_prime:
+                            inst_html += f'<span style="background: rgba(255, 215, 0, 0.2); color: #FFD700; font-size: 0.65rem; padding: 1px 6px; border-radius: 4px; border: 1px solid #FFD700; font-weight: bold; margin-left: 5px;">⭐ 波段優選</span>'
+
+                        if strategies:
+                            for strat in strategies:
+                                inst_html += f'<span style="background: rgba(210, 153, 34, 0.1); color: #D29922; font-size: 0.65rem; padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(210, 153, 34, 0.3); font-weight: 600; margin-left: 5px;" title="{strat["desc"]}">🏆 {strat["name"]}</span>'
+                            
+                            if is_resonance:
+                                inst_html += f'<span style="background: linear-gradient(90deg, #FFD700, #FFA500); color: #000000; font-size: 0.65rem; padding: 1px 6px; border-radius: 4px; font-weight: bold; margin-left: 5px;">🔥 策略共振</span>'
+                        
+                        # 共振卡片特殊邊框
+                        card_border = "1px solid #D29922" if is_resonance else "1px solid #30363D"
+                        card_bg = "rgba(210, 153, 34, 0.03)" if is_resonance else "#161B22"
+                        
                         timeline_html += f'''<div style="position: relative; margin-bottom: 15px;">
-<div style="position: absolute; left: -25px; top: 12px; width: 8px; height: 8px; background: {s['color']}; border-radius: 50%; z-index: 2;"></div>
-<div style="background: #161B22; border: 1px solid #30363D; border-radius: 8px; padding: 15px 18px; display: block;">
+<div style="position: absolute; left: -25px; top: 12px; width: 8px; height: 8px; background: {s['color']}; border-radius: 50%; z-index: 2; box-shadow: 0 0 5px {s['color'] if is_resonance else 'transparent'};"></div>
+<div style="background: {card_bg}; border: {card_border}; border-radius: 8px; padding: 15px 18px; display: block;">
 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
 <div style="display: flex; align-items: center; gap: 12px;">
 <div style="color: {s['color']}; font-size: 1.2rem;">{s['icon']}</div>
@@ -1812,6 +2183,7 @@ if ticker_input:
 <span style="color: #8B949E; font-size: 0.75rem;">({time_str})</span>
 <span style="background: {s['perf_color']}22; color: {s['perf_color']}; font-size: 0.65rem; padding: 1px 6px; border-radius: 4px; border: 1px solid {s['perf_color']}44; font-weight: 600;">{s['perf_status']}</span>
 {ai_badge}
+{inst_html}
 </div>
 <div style="color: #8B949E; font-size: 0.75rem;">{s['date'].strftime('%Y-%m-%d')}</div>
 </div>
