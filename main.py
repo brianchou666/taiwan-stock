@@ -48,6 +48,50 @@ st.markdown("""
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
     
+    /* Force Dark Theme for Streamlit Elements */
+    [data-testid="stHeader"], [data-testid="stSidebar"], .stApp {
+        background-color: #0E1117 !important;
+        color: #E0E0E0 !important;
+    }
+    
+    /* Target Settings Dialog and Menu */
+    div[role="dialog"], div[data-testid="stMenu"] {
+        background-color: #161B22 !important;
+        color: #E0E0E0 !important;
+        border: 1px solid #30363D !important;
+    }
+    
+    button {
+        color: #E0E0E0 !important;
+    }
+    
+    /* Fix for SVG icons in menu */
+    svg {
+        fill: #E0E0E0 !important;
+    }
+    
+    /* Style Streamlit Tooltip Icons to blend with Dark Theme */
+    .stTooltipIcon {
+        color: #58A6FF !important;
+        background: rgba(88, 166, 255, 0.1);
+        border-radius: 50%;
+        padding: 2px;
+        opacity: 0.6;
+        transition: all 0.3s ease;
+        transform: scale(1.1);
+    }
+    .stTooltipIcon:hover {
+        opacity: 1;
+        background: rgba(88, 166, 255, 0.2);
+        transform: scale(1.25);
+        box-shadow: 0 0 12px rgba(88, 166, 255, 0.4);
+    }
+    .stTooltipIcon svg {
+        stroke: #58A6FF !important;
+        width: 18px !important;
+        height: 18px !important;
+    }
+    
     /* Sidebar Styling */
     section[data-testid="stSidebar"] {
         background-color: #161B22 !important;
@@ -67,7 +111,7 @@ st.markdown("""
     .data-card {
         background: #161B22;
         border: 1px solid #30363D;
-        padding: 20px;
+        padding: 15px;
         border-radius: 12px;
         margin-bottom: 20px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.15);
@@ -1667,17 +1711,17 @@ MARKET_CONNECTED
                     name='中性基準'
                 ))
                 
-                # 主因子層 - 漸層填充感
+                # 主因子層
                 fig_radar.add_trace(go.Scatterpolar(
                     r=r_values,
                     theta=theta_categories,
                     fill='toself',
-                    fillcolor='rgba(88, 166, 255, 0.25)',
-                    line=dict(color='#58A6FF', width=3, shape='spline'),
+                    fillcolor='rgba(88, 166, 255, 0.15)',
+                    line=dict(color='#58A6FF', width=2, shape='linear'),
                     marker=dict(
                         color='#58A6FF',
                         size=8,
-                        symbol='circle',
+                        symbol='diamond',
                         line=dict(color='#FFFFFF', width=1)
                     ),
                     name='因子評分',
@@ -1685,31 +1729,34 @@ MARKET_CONNECTED
                     hovertemplate="<b>%{theta}</b>: %{r:.1f}分<br>%{customdata}<extra></extra>"
                 ))
                 
-                # 添加一個發光效果的外邊緣
+                # 添加一層發光效果
                 fig_radar.add_trace(go.Scatterpolar(
                     r=r_values,
                     theta=theta_categories,
                     mode='lines',
-                    line=dict(color='rgba(88, 166, 255, 0.5)', width=6, shape='spline'),
+                    line=dict(color='#58A6FF', width=6, shape='linear'),
+                    opacity=0.1,
                     hoverinfo='skip',
                     showlegend=False
                 ))
                 
                 fig_radar.update_layout(
                     polar=dict(
+                        gridshape='linear',
                         radialaxis=dict(
                             visible=True, 
                             range=[0, 100], 
-                            gridcolor='rgba(48, 54, 61, 0.5)', 
-                            tickfont=dict(size=9, color="#8B949E"),
+                            gridcolor='rgba(139, 148, 158, 0.15)', 
+                            tickfont=dict(size=8, color="#8B949E", family="Monaco, monospace"),
                             angle=0,
                             tickangle=0,
                             showline=False,
-                            gridwidth=1
+                            gridwidth=1,
+                            ticks=''
                         ),
                         angularaxis=dict(
-                            gridcolor='rgba(48, 54, 61, 0.8)', 
-                            tickfont=dict(size=11, color="#E6EAF1", family="sans-serif"),
+                            gridcolor='rgba(139, 148, 158, 0.15)', 
+                            tickfont=dict(size=10, color="#E6EAF1"),
                             rotation=90,
                             direction="clockwise",
                             gridwidth=1
@@ -1718,8 +1765,8 @@ MARKET_CONNECTED
                     ),
                     showlegend=False,
                     template="plotly_dark",
-                    height=380,
-                    margin=dict(l=50, r=50, t=30, b=30),
+                    height=280,
+                    margin=dict(l=40, r=40, t=30, b=30),
                     paper_bgcolor='rgba(0,0,0,0)',
                     plot_bgcolor='rgba(0,0,0,0)',
                     hovermode='closest'
@@ -1734,29 +1781,24 @@ MARKET_CONNECTED
                 # 為了簡單起見，我們先顯示狀態標籤
                 status_text = "市場領導者" if avg_score > 80 else "趨勢強勁" if avg_score > 65 else "中性整理" if avg_score > 50 else "弱勢觀察"
                 
-                st.markdown(f'''<div class="data-card" style="text-align: center; background: linear-gradient(145deg, #1C2128 0%, #0D1117 100%); border-top: 4px solid {score_color}; margin-bottom: 24px;">
-<div style="color: #8B949E; font-size: 0.75rem; font-weight: 700; margin-bottom: 12px; letter-spacing: 1.2px; text-transform: uppercase;">
-QUANT COMPREHENSIVE SCORE
-</div>
+                st.markdown(f'''<div class="data-card" style="text-align: center; background: linear-gradient(135deg, #1C2128 0%, #0D1117 100%); border: 1px solid #30363D; border-top: 3px solid {score_color}; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); position: relative; overflow: hidden;">
+<div style="position: absolute; top: 0; right: 0; width: 60px; height: 60px; background: radial-gradient(circle at top right, {score_color}10, transparent); pointer-events: none;"></div>
+<div style="color: #8B949E; font-size: 0.65rem; font-weight: 800; margin-bottom: 8px; letter-spacing: 1.5px; text-transform: uppercase;">Quantitative Score</div>
 <div style="display: flex; justify-content: center; align-items: baseline; gap: 4px;">
-<div style="font-size: 3.2rem; font-weight: 900; color: {score_color}; line-height: 1; text-shadow: 0 0 25px {score_color}33;">
-{avg_score:.1f}
+    <div style="font-size: 2.8rem; font-weight: 900; color: {score_color}; line-height: 1; text-shadow: 0 0 20px {score_color}33;">{avg_score:.1f}</div>
+    <div style="color: #8B949E; font-size: 0.9rem; font-weight: 600; opacity: 0.5;">/ 100</div>
 </div>
-<div style="font-size: 1rem; color: #8B949E; font-weight: 600; opacity: 0.7;">/ 100</div>
-</div>
-<div style="margin-top: 18px; padding: 6px 16px; background: {score_color}15; border-radius: 20px; display: inline-block; border: 1px solid {score_color}33;">
-<span style="color: {score_color}; font-size: 0.85rem; font-weight: 800; letter-spacing: 0.5px;">
+<div style="margin-top: 12px; padding: 4px 14px; background: {score_color}10; color: {score_color}; border-radius: 8px; font-size: 0.8rem; font-weight: 700; display: inline-block; border: 1px solid {score_color}20;">
 {status_text}
-</span>
 </div>
-<div style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: left; border-top: 1px solid #30363D; padding-top: 15px;">
-<div style="font-size: 0.75rem; color: #8B949E; display: flex; align-items: center; gap: 6px;">
-<span style="width: 6px; height: 6px; background: {"#26a69a" if values[0]>60 else "#ef5350"}; border-radius: 50%;"></span>
-主力動能: <span style="color: {"#26a69a" if values[0]>60 else "#ef5350"}; font-weight: 600;">{"看多" if values[0]>60 else "保守"}</span>
+<div style="margin-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left; border-top: 1px solid #30363D; padding-top: 12px;">
+<div style="font-size: 0.7rem; color: #8B949E; display: flex; align-items: center; gap: 5px;">
+    <span style="width: 5px; height: 5px; background: {"#26a69a" if values[0]>60 else "#ef5350"}; border-radius: 50%; box-shadow: 0 0 5px {"#26a69a" if values[0]>60 else "#ef5350"};"></span>
+    主力: <span style="color: {"#26a69a" if values[0]>60 else "#ef5350"}; font-weight: 700;">{"看多" if values[0]>60 else "保守"}</span>
 </div>
-<div style="font-size: 0.75rem; color: #8B949E; display: flex; align-items: center; gap: 6px;">
-<span style="width: 6px; height: 6px; background: {"#26a69a" if values[4]>60 else "#ef5350"}; border-radius: 50%;"></span>
-價值估值: <span style="color: {"#26a69a" if values[4]>60 else "#ef5350"}; font-weight: 600;">{"合理" if values[4]>60 else "偏高"}</span>
+<div style="font-size: 0.7rem; color: #8B949E; display: flex; align-items: center; gap: 5px;">
+    <span style="width: 5px; height: 5px; background: {"#26a69a" if values[4]>60 else "#ef5350"}; border-radius: 50%; box-shadow: 0 0 5px {"#26a69a" if values[4]>60 else "#ef5350"};"></span>
+    價值: <span style="color: {"#26a69a" if values[4]>60 else "#ef5350"}; font-weight: 700;">{"合理" if values[4]>60 else "偏高"}</span>
 </div>
 </div>
 </div>''', unsafe_allow_html=True)
