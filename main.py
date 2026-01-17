@@ -75,8 +75,8 @@ st.markdown("""
         color: #58A6FF !important;
         background: rgba(88, 166, 255, 0.1);
         border-radius: 50%;
-        padding: 2px;
-        opacity: 0.6;
+        padding: 4px;
+        opacity: 0.5;
         transition: all 0.3s ease;
         transform: scale(1.1);
     }
@@ -84,7 +84,7 @@ st.markdown("""
         opacity: 1;
         background: rgba(88, 166, 255, 0.2);
         transform: scale(1.25);
-        box-shadow: 0 0 12px rgba(88, 166, 255, 0.4);
+        box-shadow: 0 0 15px rgba(88, 166, 255, 0.4);
     }
     .stTooltipIcon svg {
         stroke: #58A6FF !important;
