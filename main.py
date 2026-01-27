@@ -44,200 +44,107 @@ st.markdown("""
     html, body, [data-testid="stAppViewContainer"], .stApp {
         background-color: #0E1117 !important;
         color: #E0E0E0 !important;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
     
-    /* Force Dark Theme for Streamlit Elements */
-    [data-testid="stHeader"], [data-testid="stSidebar"], [data-testid="stToolbar"], [data-testid="stDecoration"] {
-        background-color: #0E1117 !important;
-        background: #0E1117 !important;
-        color: #E0E0E0 !important;
-    }
-    
-    /* Hide theme toggle and toolbar for a cleaner institutional look */
-    [data-testid="stToolbar"] {
-        display: none !important;
-    }
-
-    /* Force background for all containers */
-    div[data-testid="stVerticalBlock"] > div {
-        background-color: transparent !important;
-    }
-    
-    /* Target Settings Dialog and Menu */
-    div[role="dialog"], div[data-testid="stMenu"] {
-        background-color: #161B22 !important;
-        color: #E0E0E0 !important;
-        border: 1px solid #30363D !important;
-    }
-    
-    button {
-        color: #E0E0E0 !important;
-    }
-    
-    /* Fix for SVG icons in menu */
-    svg {
-        fill: #E0E0E0 !important;
-    }
-    
-    /* Style Streamlit Tooltip Icons to blend with Dark Theme */
-    .stTooltipIcon {
-        color: #58A6FF !important;
-        background: rgba(88, 166, 255, 0.1);
-        border-radius: 50%;
-        padding: 4px;
-        opacity: 0.5;
-        transition: all 0.3s ease;
-        transform: scale(1.1);
-    }
-    .stTooltipIcon:hover {
-        opacity: 1;
-        background: rgba(88, 166, 255, 0.2);
-        transform: scale(1.25);
-        box-shadow: 0 0 15px rgba(88, 166, 255, 0.4);
-    }
-    .stTooltipIcon svg {
-        stroke: #58A6FF !important;
-        width: 18px !important;
-        height: 18px !important;
-    }
-    
-    /* Sidebar Styling */
+    /* Sidebar Styling - Ensure visibility and functionality */
     section[data-testid="stSidebar"] {
         background-color: #161B22 !important;
-        border-right: 1px solid #30363D;
+        border-right: 1px solid #30363D !important;
     }
     
-    /* Hide Sidebar Scrollbar */
-    section[data-testid="stSidebar"] > div {
-        overflow: hidden !important;
-    }
+    /* Settings Content Visibility */
     section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
-        padding-top: 2rem !important;
-        overflow: hidden !important;
-    }
-    
-    /* Card/Container Styling */
-    .data-card {
-        background: #161B22;
-        border: 1px solid #30363D;
-        padding: 15px;
-        border-radius: 12px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        transition: all 0.2s ease-in-out;
-    }
-    .data-card:hover {
-        border-color: #58A6FF;
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+        background-color: #161B22 !important;
+        color: #E0E0E0 !important;
     }
 
-    /* News Item Styling */
-    .news-item {
-        padding: 16px;
-        border-bottom: 1px solid #30363D;
-        transition: all 0.2s ease;
+    /* Force Sidebar Button Visibility (Crucial Fix) */
+    button[data-testid="stSidebarCollapseButton"],
+    [data-testid="stSidebarCollapsedControl"] button {
+        background-color: transparent !important;
+        color: white !important;
+        border: none !important;
+        z-index: 9999 !important;
+        opacity: 0.8 !important;
+        visibility: visible !important;
     }
-    .news-item:hover {
-        background: rgba(88, 166, 255, 0.05);
-        border-left: 3px solid #58A6FF;
-        padding-left: 13px; /* Adjust for border-left */
+
+    /* SVG Icon color in buttons */
+    button[data-testid="stSidebarCollapseButton"] svg,
+    [data-testid="stSidebarCollapsedControl"] button svg {
+        fill: white !important;
+        stroke: white !important;
+    }
+
+    /* Metric Styling - Exactly matching user screenshot */
+    [data-testid="stMetric"] {
+        background: transparent !important;
+        border: none !important;
+        padding: 0 !important;
     }
     
-    /* Header Customization */
+    [data-testid="stMetricValue"] {
+        font-size: 2.8rem !important;
+        font-weight: 700 !important;
+        color: #FFFFFF !important;
+    }
+    
+    [data-testid="stMetricLabel"] {
+        font-size: 1rem !important;
+        color: #8B949E !important;
+        font-weight: 400 !important;
+        margin-bottom: 5px !important;
+    }
+    
+    [data-testid="stMetricDelta"] {
+        background: rgba(35, 134, 54, 0.2) !important;
+        color: #3FB950 !important;
+        padding: 4px 12px !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        font-size: 0.9rem !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        margin-top: 10px !important;
+    }
+
+    /* Header Background */
+    [data-testid="stHeader"] {
+        background-color: transparent !important;
+    }
+
     .main-header {
         font-weight: 800;
-        letter-spacing: -0.04em;
-        background: linear-gradient(90deg, #58A6FF 0%, #BC8CF2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: #FFFFFF;
         font-size: 2.5rem !important;
-        margin-bottom: 10px !important;
-    }
-    
-    /* Metric Styling */
-    [data-testid="stMetric"] {
-        background: #1C2128;
-        border: 1px solid #30363D;
-        border-radius: 10px;
-        padding: 15px !important;
-        transition: border-color 0.2s;
-    }
-    [data-testid="stMetric"]:hover {
-        border-color: #444C56;
-    }
-    [data-testid="stMetricLabel"] {
-        font-size: 0.8rem !important;
-        font-weight: 500 !important;
-        color: #8B949E !important;
-    }
-    [data-testid="stMetricValue"] {
-        font-size: 1.6rem !important;
-        font-weight: 700 !important;
-    }
-
-    /* Tabs Styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 12px;
-        background-color: transparent;
         margin-bottom: 20px;
     }
+    
+    /* Tabs Styling - Simple Icons + Text */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 20px;
+        background-color: transparent !important;
+    }
     .stTabs [data-baseweb="tab"] {
-        height: 45px;
-        background-color: #161B22;
-        border-radius: 8px !important;
-        border: 1px solid #30363D;
-        color: #8B949E;
-        padding: 0 24px;
-        font-weight: 600;
-        transition: all 0.2s;
+        background-color: transparent !important;
+        border: none !important;
+        color: #8B949E !important;
+        font-size: 1.1rem !important;
+        padding: 10px 5px !important;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #58A6FF !important;
         color: #FFFFFF !important;
-        border-color: #58A6FF !important;
+        border-bottom: 2px solid #58A6FF !important;
     }
     
-    /* Progress Bar */
-    .stProgress > div > div > div > div {
-        background-color: #58A6FF;
-    }
-    
-    /* Status Badges */
-    .status-badge {
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-    }
-    
-    /* Scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    ::-webkit-scrollbar-thumb {
-        background: #30363D;
-        border-radius: 10px;
-    }
-    ::-webkit-scrollbar-track {
-        background: transparent;
-    }
-
-    /* Animation Classes */
-    @keyframes slideIn {
-        from { width: 0; opacity: 0; }
-        to { opacity: 1; }
-    }
-    .progress-bar-fill {
-        animation: slideIn 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    /* Horizontal Line */
+    hr {
+        border-top: 1px solid #30363D !important;
+        margin: 25px 0 !important;
     }
     </style>
     """, unsafe_allow_html=True)
+
 
 # Translations - Fixed to Chinese
 t = {
@@ -254,6 +161,7 @@ t = {
     "tab_overview": "📈 即時概況",
     "tab_tech": "📊 技術指標",
     "tab_news": "📰 市場新聞",
+    "tab_sniper": "🎯 股市狙擊手",
     "price_action": "價格走勢",
     "key_stats": "關鍵統計",
     "no_data": "查無此代碼，請確認格式是否正確 (例: 2330.TW 或 AAPL)。若代碼正確仍顯示此訊息，可能是 Yahoo Finance 暫時限制存取，請稍後再試。",
@@ -712,9 +620,9 @@ def optimize_ai_weights(data, rsi_series, ema20, ema50, bb_lower, bb_upper, vr_s
             
     return best_weights, max_score
 
-def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, health_scores, vr, atr, supertrend_dir=None, dynamic_weights=None, m_colors=None):
+def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, health_scores, vr, atr, supertrend_dir=None, dynamic_weights=None, m_colors=None, is_discount=False, has_fvg=False, is_squeeze=False, is_unicorn=False):
     """
-    Generates AI-driven entry strategy (Swing Trading Optimized v3.5)
+    Generates AI-driven entry strategy (Swing Trading Optimized v3.6 - SMC Integrated)
     """
     if m_colors is None:
         m_colors = {"up": "#26a69a", "down": "#ef5350", "buy": "#26a69a", "sell": "#ef5350"}
@@ -729,8 +637,8 @@ def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, health_scores, vr, 
         p_score, l_score, c_score = health_scores
         g_score, q_score = 5, 5
     
-    # 權重分配：技術面(40%)、基本面(35%)、動能/量能(25%)
-    w_tech, w_fund, w_vol = dynamic_weights if dynamic_weights else (0.40, 0.35, 0.25)
+    # 權重分配：技術面(40%)、基本面(30%)、SMC/動能(30%)
+    w_tech, w_fund, w_smc = dynamic_weights if dynamic_weights else (0.40, 0.30, 0.30)
     
     # 1. Technical Score (0-100)
     t_raw = 0
@@ -742,39 +650,45 @@ def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, health_scores, vr, 
     # 2. Fundamental Score (0-100)
     f_raw = (p_score + l_score + c_score + g_score + q_score) * 2 # 轉為百分制
     
-    # 3. Volume/Momentum Score (0-100)
-    v_raw = 0
-    if vr > 130: v_raw += 30
-    elif vr > 100: v_raw += 15
+    # 3. SMC & Volume Score (0-100)
+    s_raw = 0
+    if is_discount: s_raw += 25  # 處於折價區 (Discount Zone)
+    if has_fvg: s_raw += 20      # 有看漲 FVG 缺口
+    if is_squeeze: s_raw += 15    # 處於擠壓狀態 (潛在爆發)
+    if is_unicorn: s_raw += 40    # Unicorn 強力買入訊號 (OB + FVG)
     
-    vol_ma20 = data['Volume'].rolling(20).mean().iloc[-1]
-    if data['Volume'].iloc[-1] > vol_ma20 * 1.5: v_raw += 25
-    
-    price_change_3d = (current_price - data['Close'].iloc[-4]) / data['Close'].iloc[-4]
-    if price_change_3d > 0.03: v_raw += 25 
+    # 如果沒有 SMC 訊號，則參考成交量
+    if s_raw == 0:
+        if vr > 130: s_raw += 40
+        elif vr > 100: s_raw += 20
+        vol_ma20 = data['Volume'].rolling(20).mean().iloc[-1]
+        if data['Volume'].iloc[-1] > vol_ma20 * 1.5: s_raw += 30
+        price_change_3d = (current_price - data['Close'].iloc[-4]) / data['Close'].iloc[-4]
+        if price_change_3d > 0.03: s_raw += 30 
     
     # 綜合評分
-    total_score = (min(100, t_raw) * w_tech) + (min(100, f_raw) * w_fund) + (min(100, v_raw) * w_vol)
+    total_score = (min(100, t_raw) * w_tech) + (min(100, f_raw) * w_fund) + (min(100, s_raw) * w_smc)
     
     # 策略生成
-    if total_score > 65:
+    if total_score > 70:
         action, color = "積極買入", "#26a69a"
-        desc = "多頭趨勢確立且量價配合完美，具備極高爆發潛力。"
+        desc = "SMC 多頭共振且趨勢強勁，具備極高爆發潛力。"
+        if is_unicorn: desc = "【Unicorn 訊號】OB + FVG 強力支撐，極佳入場點。"
         suggested_price = current_price
         target_price = current_price + (3.5 * atr)
-    elif total_score > 45:
+    elif total_score > 50:
         action, color = "建議試探", "#26a69a"
-        desc = "趨勢偏多但波動較大，建議分批佈局，守穩支撐。"
+        desc = "進入折價區或有 FVG 支撐，建議分批佈局。"
         suggested_price = ema20
         target_price = current_price + (2.5 * atr)
-    elif total_score > 25:
+    elif total_score > 30:
         action, color = "少量參與", "#D29922"
-        desc = "目前信號中性，僅適合以極小部位參與短線反彈。"
+        desc = "目前信號中性，SMC 結構尚在成形中。"
         suggested_price = ema20 * 0.98
         target_price = current_price + (1.5 * atr)
     else:
         action, color = "保守觀望", "#8B949E"
-        desc = "信號疲弱且趨勢不明，建議空手等待更佳入場時機。"
+        desc = "處於溢價區或趨勢不明，建議等待回調至折價區。"
         suggested_price = ema50 * 0.95
         target_price = current_price * 1.05
 
@@ -786,7 +700,8 @@ def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, health_scores, vr, 
         "action": action,
         "desc": desc,
         "color": color,
-        "score": total_score
+        "score": total_score,
+        "is_smc_buy": is_discount or has_fvg or is_unicorn
     }
 
 def check_signal_performance(signal_date, suggested_price, signal_type, full_data, m_colors=None):
@@ -1039,6 +954,107 @@ def calculate_quant_factors(data, ticker_metadata, rsi_series, atr_series, super
     
     return factors
 
+@st.cache_data(ttl=3600)
+def run_sniper_scan(ticker_list):
+    """
+    股市狙擊手掃描 (Stock Sniper Scan)
+    掃描多檔股票以尋找高勝率進場機會 (Unicorn, Squeeze, Breakouts)
+    """
+    results = []
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    # 預處理 ticker 列表，過濾重複與空值
+    unique_tickers = list(dict.fromkeys([t.strip().upper() for t in ticker_list if t.strip()]))
+    
+    for i, ticker in enumerate(unique_tickers):
+        status_text.text(f"正在狙擊: {ticker} ({i+1}/{len(unique_tickers)})")
+        progress_bar.progress((i + 1) / len(unique_tickers))
+        
+        try:
+            # 獲取 60 天數據進行分析
+            data, resolved = get_stock_data(ticker, period="60d", interval="1d")
+            if data is None or len(data) < 30:
+                continue
+                
+            # 1. 基礎數據
+            current_price = float(data['Close'].iloc[-1])
+            prev_price = float(data['Close'].iloc[-2])
+            change_pct = (current_price / prev_price - 1) * 100
+            
+            # 2. SMC 邏輯
+            lookback_smc = 20
+            recent_high = data['High'].rolling(window=lookback_smc).max()
+            recent_low = data['Low'].rolling(window=lookback_smc).min()
+            equilibrium = (recent_high + recent_low) / 2
+            is_discount = current_price < equilibrium.iloc[-1]
+            
+            # FVG
+            bull_fvg = (data['Low'].shift(-1) > data['High'].shift(1)) & (data['Close'] > data['Open'])
+            
+            # OB
+            bull_ob_price = 0
+            for j in range(len(data)-20, len(data)-1):
+                if data['Close'].iloc[j+1] > data['High'].iloc[j] and (data['Close'].iloc[min(j+3, len(data)-1)]) > data['Close'].iloc[j] * 1.03:
+                    if data['Close'].iloc[j] < data['Open'].iloc[j]:
+                        bull_ob_price = data['Low'].iloc[j]
+            
+            has_unicorn = (data['Low'].iloc[-1] <= bull_ob_price) and (bull_fvg.iloc[-5:].any()) if bull_ob_price > 0 else False
+            
+            # 3. Squeeze
+            ma20 = data['Close'].rolling(window=20).mean()
+            std20 = data['Close'].rolling(window=20).std()
+            bb_upper = ma20 + (2 * std20)
+            bb_lower = ma20 - (2 * std20)
+            bb_width = (bb_upper - bb_lower) / ma20
+            is_squeeze = bb_width.iloc[-1] < bb_width.rolling(window=100).quantile(0.2).iloc[-1]
+            
+            # 4. 指標
+            delta = data['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            rsi = 100 - (100 / (1 + rs.iloc[-1]))
+            
+            # 5. 評分與標籤
+            tags = []
+            score = 0
+            if has_unicorn: 
+                tags.append("🦄 Unicorn")
+                score += 40
+            if is_squeeze: 
+                tags.append("🌀 Squeeze")
+                score += 20
+            if is_discount: 
+                tags.append("💎 Discount")
+                score += 10
+            if change_pct > 3: 
+                tags.append("🚀 Breakout")
+                score += 15
+            if 30 < rsi < 45: 
+                tags.append("📈 Reversal?")
+                score += 15
+            
+            results.append({
+                "代碼": resolved,
+                "現價": f"{current_price:.2f}",
+                "漲跌": f"{change_pct:+.2f}%",
+                "RSI": f"{rsi:.1f}",
+                "訊號標籤": " ".join(tags),
+                "狙擊分數": score
+            })
+            
+        except Exception:
+            continue
+            
+    progress_bar.empty()
+    status_text.empty()
+    
+    df_results = pd.DataFrame(results)
+    if not df_results.empty:
+        return df_results.sort_values(by="狙擊分數", ascending=False)
+    return df_results
+
 # Sidebar settings
 with st.sidebar:
     st.markdown(f'<h2 style="font-size: 1.2rem; color: #FFFFFF; margin-bottom: 20px;">{t["settings"]}</h2>', unsafe_allow_html=True)
@@ -1207,6 +1223,49 @@ MARKET_CONNECTED
 
         atr_series = calculate_atr(data)
 
+        # --- SMC (Smart Money Concepts) & Advanced Indicators ---
+        # 1. Discount/Premium Zones (SMC)
+        lookback_smc = 20
+        recent_high = data['High'].rolling(window=lookback_smc).max()
+        recent_low = data['Low'].rolling(window=lookback_smc).min()
+        equilibrium = (recent_high + recent_low) / 2
+        
+        # 2. FVG (Fair Value Gap) Detection
+        def detect_fvg(df):
+            bull_fvg = (df['Low'].shift(-1) > df['High'].shift(1)) & (df['Close'] > df['Open'])
+            bear_fvg = (df['High'].shift(-1) < df['Low'].shift(1)) & (df['Close'] < df['Open'])
+            return bull_fvg, bear_fvg
+        bull_fvg, bear_fvg = detect_fvg(data)
+        
+        # 3. Squeeze Detection (BB Width)
+        bb_width = (bb_upper - bb_lower) / ma20
+        is_squeeze = bb_width < bb_width.rolling(window=100).quantile(0.2) # 低於 20% 分位數視為擠壓
+
+        # 4. Order Block (OB) Detection
+        def detect_order_blocks(df, lookback=20):
+            # 簡化的 OB 檢測：尋找一段強勢波動前的最後一根反向 K 線
+            bull_ob_price = pd.Series(index=df.index, dtype=float)
+            bear_ob_price = pd.Series(index=df.index, dtype=float)
+            
+            for i in range(lookback, len(df)-1):
+                # Bullish OB: 強勢上漲 (例如 3 根 K 線漲幅 > ATR) 前的最後一根陰線
+                if df['Close'].iloc[i+1] > df['High'].iloc[i] and (df['Close'].iloc[i+3] if i+3 < len(df) else df['Close'].iloc[-1]) > df['Close'].iloc[i] * 1.03:
+                    if df['Close'].iloc[i] < df['Open'].iloc[i]:
+                        bull_ob_price.iloc[i:] = df['Low'].iloc[i]
+                
+                # Bearish OB: 強勢下跌前的最後一根陽線
+                if df['Close'].iloc[i+1] < df['Low'].iloc[i] and (df['Close'].iloc[i+3] if i+3 < len(df) else df['Close'].iloc[-1]) < df['Close'].iloc[i] * 0.97:
+                    if df['Close'].iloc[i] > df['Open'].iloc[i]:
+                        bear_ob_price.iloc[i:] = df['High'].iloc[i]
+            
+            return bull_ob_price, bear_ob_price
+        
+        bull_ob, bear_ob = detect_order_blocks(data)
+
+        # 5. Unicorn Signal (OB + FVG Confirmation)
+        has_unicorn_buy = (data['Low'] <= bull_ob) & (bull_fvg.rolling(window=5).sum() > 0)
+        has_unicorn_sell = (data['High'] >= bear_ob) & (bear_fvg.rolling(window=5).sum() > 0)
+
         # --- NEW: SuperTrend Indicator ---
         def calculate_supertrend(df, atr_s, multiplier=3):
             try:
@@ -1267,7 +1326,11 @@ MARKET_CONNECTED
             vr=float(vr_series.iloc[-1]) if not vr_series.empty else 100, 
             atr=float(atr_series.iloc[-1]) if not atr_series.empty else 0, 
             supertrend_dir=supertrend_dir.iloc[-1] if not supertrend_dir.empty else 0,
-            dynamic_weights=best_weights
+            dynamic_weights=best_weights,
+            is_discount=bool(data['Close'].iloc[-1] < equilibrium.iloc[-1]),
+            has_fvg=bool(bull_fvg.iloc[-1]),
+            is_squeeze=bool(is_squeeze.iloc[-1]),
+            is_unicorn=bool(has_unicorn_buy.iloc[-1])
         )
         ai_score = initial_ai_strat['score']
 
@@ -1290,6 +1353,12 @@ MARKET_CONNECTED
             
             # 機構策略識別 (Institutional Strategy Identification)
             inst_strats = get_institutional_strategy(data, i, health_scores=health_scores, ema_data=ema_data, vol_ma50=vol_ma50)
+            
+            # --- SMC 專業策略補充 (SMC Professional Strategy Supplement) ---
+            if has_unicorn_buy.iloc[i]:
+                inst_strats.append({"name": "Unicorn 買入", "desc": "SMC: Order Block + FVG 共振，極高勝率進場結構。"})
+            elif has_unicorn_sell.iloc[i]:
+                inst_strats.append({"name": "Unicorn 賣出", "desc": "SMC: Bearish OB + FVG 共振，機構出貨結構。"})
             
             # --- 基礎技術指標過濾 (Basic Technical Filters - Loosened for more entries) ---
             macd_gold = macd_series.iloc[i] > signal_series.iloc[i] and macd_series.iloc[i-1] <= signal_series.iloc[i-1]
@@ -1325,7 +1394,11 @@ MARKET_CONNECTED
                         health_scores=health_scores, vr=h_vr, atr=h_atr, 
                         supertrend_dir=supertrend_dir.iloc[i],
                         dynamic_weights=best_weights, 
-                        m_colors=m_colors
+                        m_colors=m_colors,
+                        is_discount=bool(data['Close'].iloc[i] < equilibrium.iloc[i]),
+                        has_fvg=bool(bull_fvg.iloc[i]),
+                        is_squeeze=bool(is_squeeze.iloc[i]),
+                        is_unicorn=bool(has_unicorn_buy.iloc[i])
                     )
                     h_score = h_ai.get('score', 0)
                     
@@ -1435,7 +1508,11 @@ MARKET_CONNECTED
                 atr=float(atr_series.iloc[-1]), 
                 supertrend_dir=supertrend_dir.iloc[-1],
                 dynamic_weights=best_weights,
-                m_colors=m_colors
+                m_colors=m_colors,
+                is_discount=bool(current_price < equilibrium.iloc[-1]),
+                has_fvg=bool(bull_fvg.iloc[-1]),
+                is_squeeze=bool(is_squeeze.iloc[-1]),
+                is_unicorn=bool(has_unicorn_buy.iloc[-1])
             )
             
             target_median = ticker_metadata.get('targetMedianPrice', None)
@@ -1444,7 +1521,7 @@ MARKET_CONNECTED
                 target_median, float(atr_series.iloc[-1]), health_scores=health_scores, m_colors=m_colors
             )
             
-        tab1, tab2, tab3 = st.tabs([t["tab_overview"], t["tab_tech"], t["tab_news"]])
+        tab1, tab2, tab3, tab4 = st.tabs([t["tab_overview"], t["tab_tech"], t["tab_news"], t["tab_sniper"]])
 
         with tab1:
             # 1. 快速建議與分析摘要 (Quick Recommendation & Analysis Summary)
@@ -1526,6 +1603,39 @@ MARKET_CONNECTED
     </div>
     <div style="color: #3FB950; font-size: 0.75rem; font-weight: 700; margin-bottom: 4px;">出場保命線: {c_symbol}{exit_strategy['trailing_stop']:.1f}</div>
     <div style="color: #C9D1D9; font-size: 0.7rem; line-height: 1.3;">{exit_strategy['desc']}</div>
+</div>
+</div>''', unsafe_allow_html=True)
+
+            # --- SMC 診斷與結構 (SMC Diagnosis & Structure) ---
+            is_disc = current_price < equilibrium.iloc[-1]
+            smc_zone = "折價區 (Discount)" if is_disc else "溢價區 (Premium)"
+            smc_zone_color = "#3FB950" if is_disc else "#FF7B72"
+            
+            fvg_status = "看漲 FVG 形成" if bull_fvg.iloc[-1] else ("看跌 FVG 形成" if bear_fvg.iloc[-1] else "無明顯缺口")
+            fvg_color = "#3FB950" if bull_fvg.iloc[-1] else ("#FF7B72" if bear_fvg.iloc[-1] else "#8B949E")
+            
+            squeeze_status = "動能擠壓中" if is_squeeze.iloc[-1] else "動能釋放中"
+            squeeze_color = "#BC8CF2" if is_squeeze.iloc[-1] else "#8B949E"
+            
+            unicorn_text = "🦄 Unicorn 買入訊號" if has_unicorn_buy.iloc[-1] else ("🚨 Unicorn 賣出訊號" if has_unicorn_sell.iloc[-1] else "無特殊結構")
+            unicorn_color = "#3FB950" if has_unicorn_buy.iloc[-1] else ("#FF7B72" if has_unicorn_sell.iloc[-1] else "#8B949E")
+
+            st.markdown(f'''<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px;">
+<div class="data-card" style="padding: 12px; border: 1px solid rgba(48, 54, 61, 0.5); text-align: center;">
+    <div style="color: #8B949E; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">市場區域 (SMC Zone)</div>
+    <div style="color: {smc_zone_color}; font-size: 0.95rem; font-weight: 700;">{smc_zone}</div>
+</div>
+<div class="data-card" style="padding: 12px; border: 1px solid rgba(48, 54, 61, 0.5); text-align: center;">
+    <div style="color: #8B949E; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">失衡狀態 (FVG)</div>
+    <div style="color: {fvg_color}; font-size: 0.95rem; font-weight: 700;">{fvg_status}</div>
+</div>
+<div class="data-card" style="padding: 12px; border: 1px solid rgba(48, 54, 61, 0.5); text-align: center;">
+    <div style="color: #8B949E; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">動能擠壓 (Squeeze)</div>
+    <div style="color: {squeeze_color}; font-size: 0.95rem; font-weight: 700;">{squeeze_status}</div>
+</div>
+<div class="data-card" style="padding: 12px; border: 1px solid rgba(48, 54, 61, 0.5); text-align: center;">
+    <div style="color: #8B949E; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">專業訊號 (Unicorn)</div>
+    <div style="color: {unicorn_color}; font-size: 0.95rem; font-weight: 700;">{unicorn_text}</div>
 </div>
 </div>''', unsafe_allow_html=True)
 
@@ -2145,6 +2255,57 @@ MARKET_CONNECTED
 </div>""", unsafe_allow_html=True)
             except Exception as e:
                 st.error(f"新聞分頁發生錯誤: {e}")
+
+        with tab4:
+            st.markdown(f'''<div class="data-card" style="border-left: 4px solid #D29922; background: rgba(210, 153, 34, 0.05);">
+            <h3 style="margin: 0; color: #D29922;">🎯 股市狙擊手 (Stock Sniper)</h3>
+            <p style="font-size: 0.85rem; color: #8B949E; margin-top: 8px;">
+                學習自 StockSniper 與 DailyDip 概念，自動掃描市場中的高勝率機會。<br>
+                檢測項目：<b>Unicorn (OB+FVG)</b>、<b>Squeeze (動能擠壓)</b>、<b>Breakout (帶量突破)</b>。
+            </p>
+            </div>''', unsafe_allow_html=True)
+            
+            # 狙擊清單設定
+            default_sniper_list = "2330.TW, 2317.TW, 2454.TW, 2308.TW, 2303.TW, 2382.TW, 3231.TW, 2412.TW, 2881.TW, 2882.TW, 3008.TW, 2603.TW, 1513.TW, 1519.TW, 2376.TW"
+            sniper_input = st.text_area("狙擊掃描清單 (逗號分隔)", value=default_sniper_list, height=100)
+            
+            col_scan, col_clear = st.columns([1, 4])
+            with col_scan:
+                start_scan = st.button("🚀 開始全市場狙擊", type="primary", use_container_width=True)
+            
+            if start_scan:
+                ticker_list = [t.strip() for t in sniper_input.split(",")]
+                scan_results = run_sniper_scan(ticker_list)
+                
+                if not scan_results.empty:
+                    st.markdown("### 🔍 狙擊掃描結果")
+                    
+                    # 格式化顯示 DataFrame
+                    def color_score(val):
+                        color = "#ef5350" if val < 30 else "#D29922" if val < 60 else "#26a69a"
+                        return f'color: {color}; font-weight: bold'
+
+                    st.dataframe(
+                        scan_results.style.map(color_score, subset=['狙擊分數']),
+                        use_container_width=True,
+                        height=500
+                    )
+                    
+                    # 推薦進場標的 (分數最高的前三名)
+                    top_picks = scan_results.head(3)
+                    if not top_picks.empty:
+                        st.success(f"🎯 狙擊手推薦：本日最值得關注標的為 **{', '.join(top_picks['代碼'].tolist())}**")
+                    
+                    # 下載掃描結果
+                    csv = scan_results.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button(
+                        label="📥 下載狙擊報表 (CSV)",
+                        data=csv,
+                        file_name=f"sniper_report_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                    )
+                else:
+                    st.warning("目前掃描範圍內無明顯狙擊信號，請更換掃描清單。")
 
         # Footer
         st.markdown("---")
