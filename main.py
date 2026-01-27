@@ -1781,23 +1781,23 @@ MARKET_CONNECTED
                 # 為了簡單起見，我們先顯示狀態標籤
                 status_text = "市場領導者" if avg_score > 80 else "趨勢強勁" if avg_score > 65 else "中性整理" if avg_score > 50 else "弱勢觀察"
                 
-                st.markdown(f'''<div class="data-card" style="text-align: center; background: linear-gradient(135deg, #1C2128 0%, #0D1117 100%); border: 1px solid #30363D; border-top: 3px solid {score_color}; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); position: relative; overflow: hidden;">
-<div style="position: absolute; top: 0; right: 0; width: 60px; height: 60px; background: radial-gradient(circle at top right, {score_color}10, transparent); pointer-events: none;"></div>
-<div style="color: #8B949E; font-size: 0.65rem; font-weight: 800; margin-bottom: 8px; letter-spacing: 1.5px; text-transform: uppercase;">Quantitative Score</div>
-<div style="display: flex; justify-content: center; align-items: baseline; gap: 4px;">
-    <div style="font-size: 2.8rem; font-weight: 900; color: {score_color}; line-height: 1; text-shadow: 0 0 20px {score_color}33;">{avg_score:.1f}</div>
-    <div style="color: #8B949E; font-size: 0.9rem; font-weight: 600; opacity: 0.5;">/ 100</div>
+                st.markdown(f'''<div class="data-card" style="text-align: center; background: linear-gradient(135deg, #1C2128 0%, #0D1117 100%); border: 1px solid #30363D; border-top: 3px solid {score_color}; padding: 24px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); position: relative; overflow: hidden;">
+<div style="position: absolute; top: 0; right: 0; width: 80px; height: 80px; background: radial-gradient(circle at top right, {score_color}10, transparent); pointer-events: none;"></div>
+<div style="color: #8B949E; font-size: 0.8rem; font-weight: 800; margin-bottom: 12px; letter-spacing: 2px; text-transform: uppercase;">Quantitative Score</div>
+<div style="display: flex; justify-content: center; align-items: baseline; gap: 6px;">
+    <div style="font-size: 3.2rem; font-weight: 900; color: {score_color}; line-height: 1; text-shadow: 0 0 25px {score_color}33;">{avg_score:.1f}</div>
+    <div style="color: #8B949E; font-size: 1.1rem; font-weight: 600; opacity: 0.5;">/ 100</div>
 </div>
-<div style="margin-top: 12px; padding: 4px 14px; background: {score_color}10; color: {score_color}; border-radius: 8px; font-size: 0.8rem; font-weight: 700; display: inline-block; border: 1px solid {score_color}20;">
+<div style="margin-top: 16px; padding: 6px 18px; background: {score_color}10; color: {score_color}; border-radius: 8px; font-size: 0.95rem; font-weight: 700; display: inline-block; border: 1px solid {score_color}20;">
 {status_text}
 </div>
-<div style="margin-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left; border-top: 1px solid #30363D; padding-top: 12px;">
-<div style="font-size: 0.7rem; color: #8B949E; display: flex; align-items: center; gap: 5px;">
-    <span style="width: 5px; height: 5px; background: {"#26a69a" if values[0]>60 else "#ef5350"}; border-radius: 50%; box-shadow: 0 0 5px {"#26a69a" if values[0]>60 else "#ef5350"};"></span>
+<div style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; text-align: left; border-top: 1px solid #30363D; padding-top: 16px;">
+<div style="font-size: 0.85rem; color: #8B949E; display: flex; align-items: center; gap: 8px;">
+    <span style="width: 7px; height: 7px; background: {"#26a69a" if values[0]>60 else "#ef5350"}; border-radius: 50%; box-shadow: 0 0 8px {"#26a69a" if values[0]>60 else "#ef5350"};"></span>
     主力: <span style="color: {"#26a69a" if values[0]>60 else "#ef5350"}; font-weight: 700;">{"看多" if values[0]>60 else "保守"}</span>
 </div>
-<div style="font-size: 0.7rem; color: #8B949E; display: flex; align-items: center; gap: 5px;">
-    <span style="width: 5px; height: 5px; background: {"#26a69a" if values[4]>60 else "#ef5350"}; border-radius: 50%; box-shadow: 0 0 5px {"#26a69a" if values[4]>60 else "#ef5350"};"></span>
+<div style="font-size: 0.85rem; color: #8B949E; display: flex; align-items: center; gap: 8px;">
+    <span style="width: 7px; height: 7px; background: {"#26a69a" if values[4]>60 else "#ef5350"}; border-radius: 50%; box-shadow: 0 0 8px {"#26a69a" if values[4]>60 else "#ef5350"};"></span>
     價值: <span style="color: {"#26a69a" if values[4]>60 else "#ef5350"}; font-weight: 700;">{"合理" if values[4]>60 else "偏高"}</span>
 </div>
 </div>
@@ -1821,22 +1821,22 @@ MARKET_CONNECTED
                 rev_growth_color = "#26a69a" if rev_growth > 0 else "#ef5350"
                 ni_growth_color = "#26a69a" if ni_growth > 0 else "#ef5350"
                 
-                perf_html = f"""<div class="data-card" style="margin-top: 20px; background: rgba(88, 166, 255, 0.03); border: 1px solid rgba(88, 166, 255, 0.1); display: flex; justify-content: space-around; align-items: center; gap: 20px; padding: 22px; margin-bottom: 0;">
+                perf_html = f"""<div class="data-card" style="margin-top: 20px; background: rgba(88, 166, 255, 0.03); border: 1px solid rgba(88, 166, 255, 0.1); display: flex; justify-content: space-around; align-items: center; gap: 30px; padding: 28px; margin-bottom: 0;">
 <div style="text-align: center; flex: 1;">
-<p style="color: #8B949E; font-size: 0.75rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">年度營收 ({latest_year})</p>
+<p style="color: #8B949E; font-size: 0.85rem; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">年度營收 ({latest_year})</p>
 <div style="display: flex; flex-direction: column; align-items: center;">
-<span style="font-size: 1.3rem; font-weight: 900; color: #F0F6FC; letter-spacing: -0.5px;">{c_symbol}{rev_latest/1e6:,.0f}M</span>
-<span style="font-size: 0.75rem; color: {rev_growth_color}; font-weight: 800; background: {rev_growth_color}15; padding: 2px 10px; border-radius: 6px; margin-top: 8px; border: 1px solid {rev_growth_color}25;">
+<span style="font-size: 1.6rem; font-weight: 900; color: #F0F6FC; letter-spacing: -0.5px;">{c_symbol}{rev_latest/1e6:,.0f}M</span>
+<span style="font-size: 0.85rem; color: {rev_growth_color}; font-weight: 800; background: {rev_growth_color}15; padding: 4px 12px; border-radius: 6px; margin-top: 10px; border: 1px solid {rev_growth_color}25;">
 {rev_growth:+.1f}% YoY
 </span>
 </div>
 </div>
-<div style="width: 1px; height: 50px; background: rgba(48, 54, 61, 0.8);"></div>
+<div style="width: 1px; height: 60px; background: rgba(48, 54, 61, 0.8);"></div>
 <div style="text-align: center; flex: 1;">
-<p style="color: #8B949E; font-size: 0.75rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">年度淨利 ({latest_year})</p>
+<p style="color: #8B949E; font-size: 0.85rem; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">年度淨利 ({latest_year})</p>
 <div style="display: flex; flex-direction: column; align-items: center;">
-<span style="font-size: 1.3rem; font-weight: 900; color: #F0F6FC; letter-spacing: -0.5px;">{c_symbol}{ni_latest/1e6:,.0f}M</span>
-<span style="font-size: 0.75rem; color: {ni_growth_color}; font-weight: 800; background: {ni_growth_color}15; padding: 2px 10px; border-radius: 6px; margin-top: 8px; border: 1px solid {ni_growth_color}25;">
+<span style="font-size: 1.6rem; font-weight: 900; color: #F0F6FC; letter-spacing: -0.5px;">{c_symbol}{ni_latest/1e6:,.0f}M</span>
+<span style="font-size: 0.85rem; color: {ni_growth_color}; font-weight: 800; background: {ni_growth_color}15; padding: 4px 12px; border-radius: 6px; margin-top: 10px; border: 1px solid {ni_growth_color}25;">
 {ni_growth:+.1f}% YoY
 </span>
 </div>
@@ -1856,52 +1856,52 @@ MARKET_CONNECTED
                 health_border = "#26a69a" if avg_health > 7 else "#ef5350" if avg_health < 4 else "#30363D"
                 health_bg = "rgba(38, 166, 154, 0.05)" if avg_health > 7 else "rgba(239, 83, 80, 0.05)" if avg_health < 4 else "#161B22"
                 
-                st.markdown(f'''<div class="data-card" style="height: 100%; margin-bottom: 0; border: 1px solid {health_border}55; background: linear-gradient(180deg, {health_bg}, rgba(13, 17, 23, 0.98)); border-radius: 18px; padding: 24px; box-shadow: 0 12px 40px rgba(0,0,0,0.3); border-top: 4px solid {health_border};">
-<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+                st.markdown(f'''<div class="data-card" style="height: 100%; margin-bottom: 0; border: 1px solid {health_border}55; background: linear-gradient(180deg, {health_bg}, rgba(13, 17, 23, 0.98)); border-radius: 18px; padding: 28px; box-shadow: 0 12px 40px rgba(0,0,0,0.3); border-top: 5px solid {health_border};">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px;">
 <div>
-<h3 style="margin: 0; font-size: 1.25rem; font-weight: 800; color: #FFFFFF; display: flex; align-items: center; gap: 12px; letter-spacing: -0.2px;">
-<span style="background: {health_border}; width: 5px; height: 22px; border-radius: 2.5px;"></span>
+<h3 style="margin: 0; font-size: 1.45rem; font-weight: 800; color: #FFFFFF; display: flex; align-items: center; gap: 14px; letter-spacing: -0.2px;">
+<span style="background: {health_border}; width: 6px; height: 26px; border-radius: 3px;"></span>
 {t["key_stats"]}
 </h3>
-<p style="margin: 6px 0 0 17px; font-size: 0.75rem; color: #8B949E; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600;">基本面分析 (Fundamental Analysis)</p>
+<p style="margin: 8px 0 0 20px; font-size: 0.85rem; color: #8B949E; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;">基本面分析 (Fundamental Analysis)</p>
 </div>
 <div style="text-align: right;">
-<div style="font-size: 0.7rem; color: #8B949E; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">財務健康狀態</div>
-<span style="font-size: 0.8rem; background: {health_border}25; color: {health_border}; padding: 5px 12px; border-radius: 8px; border: 1px solid {health_border}50; font-weight: 900; letter-spacing: 0.5px;">
+<div style="font-size: 0.8rem; color: #8B949E; margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;">財務健康狀態</div>
+<span style="font-size: 0.95rem; background: {health_border}25; color: {health_border}; padding: 6px 16px; border-radius: 10px; border: 1px solid {health_border}50; font-weight: 900; letter-spacing: 0.8px;">
 {'優異 (EXCELLENT)' if avg_health > 7 else '警示 (WARNING)' if avg_health < 4 else '穩定 (STABLE)'}
 </span>
 </div>
 </div>
-<div style="display: flex; gap: 12px; margin-bottom: 24px; padding: 12px; background: rgba(48, 54, 61, 0.25); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+<div style="display: flex; gap: 16px; margin-bottom: 28px; padding: 16px; background: rgba(48, 54, 61, 0.25); border-radius: 14px; border: 1px solid rgba(255,255,255,0.05);">
 <div style="flex: 1; text-align: center; border-right: 1px solid rgba(48, 54, 61, 0.6);">
-<div style="font-size: 0.65rem; color: #8B949E; margin-bottom: 4px; font-weight: 600;">獲利能力</div>
-<div style="font-size: 1.1rem; font-weight: 900; color: #FFFFFF;">{profitability_score}<span style="font-size: 0.7rem; color: #8B949E; font-weight: 400; margin-left: 2px;">/10</span></div>
+<div style="font-size: 0.75rem; color: #8B949E; margin-bottom: 6px; font-weight: 600;">獲利能力</div>
+<div style="font-size: 1.35rem; font-weight: 900; color: #FFFFFF;">{profitability_score}<span style="font-size: 0.85rem; color: #8B949E; font-weight: 400; margin-left: 3px;">/10</span></div>
 </div>
 <div style="flex: 1; text-align: center; border-right: 1px solid rgba(48, 54, 61, 0.6);">
-<div style="font-size: 0.65rem; color: #8B949E; margin-bottom: 4px; font-weight: 600;">財務槓桿</div>
-<div style="font-size: 1.1rem; font-weight: 900; color: #FFFFFF;">{leverage_score}<span style="font-size: 0.7rem; color: #8B949E; font-weight: 400; margin-left: 2px;">/10</span></div>
+<div style="font-size: 0.75rem; color: #8B949E; margin-bottom: 6px; font-weight: 600;">財務槓桿</div>
+<div style="font-size: 1.35rem; font-weight: 900; color: #FFFFFF;">{leverage_score}<span style="font-size: 0.85rem; color: #8B949E; font-weight: 400; margin-left: 3px;">/10</span></div>
 </div>
 <div style="flex: 1; text-align: center;">
-<div style="font-size: 0.65rem; color: #8B949E; margin-bottom: 4px; font-weight: 600;">現金流量</div>
-<div style="font-size: 1.1rem; font-weight: 900; color: #FFFFFF;">{cashflow_score}<span style="font-size: 0.7rem; color: #8B949E; font-weight: 400; margin-left: 2px;">/10</span></div>
+<div style="font-size: 0.75rem; color: #8B949E; margin-bottom: 6px; font-weight: 600;">現金流量</div>
+<div style="font-size: 1.35rem; font-weight: 900; color: #FFFFFF;">{cashflow_score}<span style="font-size: 0.85rem; color: #8B949E; font-weight: 400; margin-left: 3px;">/10</span></div>
 </div>
 </div>
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px;">
-<div class="data-card" style="background: rgba(48, 54, 61, 0.18); padding: 14px; margin-bottom: 0;">
-    <p style="color: #58A6FF; font-size: 0.75rem; font-weight: 800; margin-bottom: 10px; text-transform: uppercase; border-bottom: 1px solid rgba(88, 166, 255, 0.25); padding-bottom: 6px; letter-spacing: 0.5px;">估值分析 (Valuation)</p>
-    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 6px;"><span style="color: #8B949E;">{t['trailing_pe']}</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('trailingPE', 'N/A')}</span></div>
-    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 6px;"><span style="color: #8B949E;">{t['forward_pe']}</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('forwardPE', 'N/A')}</span></div>
-    <div style="display: flex; justify-content: space-between; font-size: 0.85rem;"><span style="color: #8B949E;">{t['div_yield']}</span><span style="font-weight: 700; color: #3FB950;">{ticker_metadata.get('dividendYield', 0)*100:.2f}%</span></div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+<div class="data-card" style="background: rgba(48, 54, 61, 0.18); padding: 18px; margin-bottom: 0;">
+    <p style="color: #58A6FF; font-size: 0.85rem; font-weight: 800; margin-bottom: 12px; text-transform: uppercase; border-bottom: 1px solid rgba(88, 166, 255, 0.25); padding-bottom: 8px; letter-spacing: 0.8px;">估值分析 (Valuation)</p>
+    <div style="display: flex; justify-content: space-between; font-size: 1.0rem; margin-bottom: 8px;"><span style="color: #8B949E;">{t['trailing_pe']}</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('trailingPE', 'N/A')}</span></div>
+    <div style="display: flex; justify-content: space-between; font-size: 1.0rem; margin-bottom: 8px;"><span style="color: #8B949E;">{t['forward_pe']}</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('forwardPE', 'N/A')}</span></div>
+    <div style="display: flex; justify-content: space-between; font-size: 1.0rem;"><span style="color: #8B949E;">{t['div_yield']}</span><span style="font-weight: 700; color: #3FB950;">{ticker_metadata.get('dividendYield', 0)*100:.2f}%</span></div>
 </div>
-<div class="data-card" style="background: rgba(48, 54, 61, 0.18); padding: 14px; margin-bottom: 0;">
-    <p style="color: #D29922; font-size: 0.75rem; font-weight: 800; margin-bottom: 10px; text-transform: uppercase; border-bottom: 1px solid rgba(210, 153, 34, 0.25); padding-bottom: 6px; letter-spacing: 0.5px;">價格區間 (Price Range)</p>
-    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 6px;"><span style="color: #8B949E;">52 週最高</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('fiftyTwoWeekHigh', 'N/A')}</span></div>
-    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 6px;"><span style="color: #8B949E;">52 週最低</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('fiftyTwoWeekLow', 'N/A')}</span></div>
-    <div style="display: flex; justify-content: space-between; font-size: 0.85rem;"><span style="color: #8B949E;">貝塔係數 (Beta)</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('beta', 'N/A')}</span></div>
+<div class="data-card" style="background: rgba(48, 54, 61, 0.18); padding: 18px; margin-bottom: 0;">
+    <p style="color: #D29922; font-size: 0.85rem; font-weight: 800; margin-bottom: 12px; text-transform: uppercase; border-bottom: 1px solid rgba(210, 153, 34, 0.25); padding-bottom: 8px; letter-spacing: 0.8px;">價格區間 (Price Range)</p>
+    <div style="display: flex; justify-content: space-between; font-size: 1.0rem; margin-bottom: 8px;"><span style="color: #8B949E;">52 週最高</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('fiftyTwoWeekHigh', 'N/A')}</span></div>
+    <div style="display: flex; justify-content: space-between; font-size: 1.0rem; margin-bottom: 8px;"><span style="color: #8B949E;">52 週最低</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('fiftyTwoWeekLow', 'N/A')}</span></div>
+    <div style="display: flex; justify-content: space-between; font-size: 1.0rem;"><span style="color: #8B949E;">貝塔係數 (Beta)</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('beta', 'N/A')}</span></div>
 </div>
-<div class="data-card" style="background: rgba(48, 54, 61, 0.18); padding: 14px; margin-bottom: 0;">
-    <p style="color: #BC8CFF; font-size: 0.75rem; font-weight: 800; margin-bottom: 10px; text-transform: uppercase; border-bottom: 1px solid rgba(188, 140, 255, 0.25); padding-bottom: 6px; letter-spacing: 0.5px;">分析師預測 (Forecast)</p>
-    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 6px;">
+<div class="data-card" style="background: rgba(48, 54, 61, 0.18); padding: 18px; margin-bottom: 0;">
+    <p style="color: #BC8CFF; font-size: 0.85rem; font-weight: 800; margin-bottom: 12px; text-transform: uppercase; border-bottom: 1px solid rgba(188, 140, 255, 0.25); padding-bottom: 8px; letter-spacing: 0.8px;">分析師預測 (Forecast)</p>
+    <div style="display: flex; justify-content: space-between; font-size: 1.0rem; margin-bottom: 8px;">
         <span style="color: #8B949E;">目標中位價</span>
         <span style="font-weight: 700; color: #58A6FF;">{ticker_metadata.get('targetMedianPrice', 'N/A')}</span>
     </div>
