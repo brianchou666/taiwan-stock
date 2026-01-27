@@ -6,7 +6,7 @@ AUTHOR: Quant Systems Team
 LICENSE: Proprietary / Commercial Buyout
 DESCRIPTION: 
     An integrated quantitative analysis system featuring AI-driven strategy 
-    evolution, multi-factor scoring, and advanced Monte Carlo risk simulation.
+    evolution and multi-factor scoring.
 ================================================================================
 """
 
@@ -27,7 +27,6 @@ from scipy.stats import t as student_t
 SYSTEM_SETTINGS = {
     "RISK_FREE_RATE": 0.015,       # Annual risk-free rate for Sharpe calculation
     "DEFAULT_BACKTEST_DAYS": 5,    # Holding period for backtest evaluation
-    "SIMULATION_DAYS": 30,         # Prediction horizon for Monte Carlo
     "AI_CONFIDENCE_THRESHOLD": 60, # Minimum score to trigger 'Strong Buy'
     "THEME_COLOR": "#58A6FF"       # Primary institutional blue
 }
@@ -42,16 +41,27 @@ st.set_page_config(
 st.markdown("""
     <style>
     /* Global Background and Text */
-    .stApp {
-        background-color: #0E1117;
-        color: #E0E0E0;
+    html, body, [data-testid="stAppViewContainer"], .stApp {
+        background-color: #0E1117 !important;
+        color: #E0E0E0 !important;
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
     
     /* Force Dark Theme for Streamlit Elements */
-    [data-testid="stHeader"], [data-testid="stSidebar"], .stApp {
+    [data-testid="stHeader"], [data-testid="stSidebar"], [data-testid="stToolbar"], [data-testid="stDecoration"] {
         background-color: #0E1117 !important;
+        background: #0E1117 !important;
         color: #E0E0E0 !important;
+    }
+    
+    /* Hide theme toggle and toolbar for a cleaner institutional look */
+    [data-testid="stToolbar"] {
+        display: none !important;
+    }
+
+    /* Force background for all containers */
+    div[data-testid="stVerticalBlock"] > div {
+        background-color: transparent !important;
     }
     
     /* Target Settings Dialog and Menu */
@@ -243,22 +253,18 @@ t = {
     "market_cap": "市值",
     "tab_overview": "📈 即時概況",
     "tab_tech": "📊 技術指標",
-    "tab_predict": "🔮 趨勢預測",
     "tab_news": "📰 市場新聞",
     "price_action": "價格走勢",
     "key_stats": "關鍵統計",
-    "no_data": "查無此代碼，請重新輸入 (如 2330.TW)。",
+    "no_data": "查無此代碼，請確認格式是否正確 (例: 2330.TW 或 AAPL)。若代碼正確仍顯示此訊息，可能是 Yahoo Finance 暫時限制存取，請稍後再試。",
     "trailing_pe": "本益比",
     "forward_pe": "預測本益比",
     "div_yield": "殖利率",
     "high_52w": "52週高點",
     "low_52w": "52週低點",
     "beta": "Beta 係數",
-    "predicted_price": "推估價格",
     "tech_analysis": "技術指標詳解",
     "signal_label": "信號線",
-    "backtest_header": "預測準確度回測",
-    "backtest_desc": "使用過去 7 天的數據驗證模型準確性。",
     "target_price": "目標價參考資訊"
 }
 
@@ -283,6 +289,11 @@ def resolve_ticker(ticker):
             return f"{base}.TW"
         return ticker
         
+    # 如果是 2330TW 這種格式 (沒加點)
+    if re.match(r'^(\d{4,6})(TW|TWO)$', ticker):
+        match = re.match(r'^(\d{4,6})(TW|TWO)$', ticker)
+        return f"{match.group(1)}.{match.group(2)}"
+
     # 如果全是數字 (台股代碼)
     if re.match(r'^\d{4,6}$', ticker):
         # 預設優先匹配上市 (.TW)，get_stock_data 會在失敗時嘗試 .TWO
@@ -345,7 +356,8 @@ def get_stock_data(ticker, period, interval):
             if all(col in d.columns for col in required):
                 return d
             return None
-        except Exception:
+        except Exception as e:
+            st.sidebar.error(f"下載錯誤 ({t_code}): {str(e)}")
             return None
 
     # 第一輪嘗試
@@ -641,7 +653,7 @@ def optimize_ai_weights(data, rsi_series, ema20, ema50, bb_lower, bb_upper, vr_s
     AI 進化引擎 v2.0 (AI Self-Evolution Engine):
     - 採用網格搜尋 (Grid Search) 優化技術、基本面、量能權重
     - 多維度評估：整合準確率 (Accuracy) 與 獲益率 (Profit Factor)
-    - 適應性學習：自動根據個股歷史表現調整預測參數
+    - 適應性學習：自動根據個股歷史表現調整分析權重
     """
     # 擴展權重組合 (Tech, Fund, Vol)
     candidates = []
@@ -700,7 +712,7 @@ def optimize_ai_weights(data, rsi_series, ema20, ema50, bb_lower, bb_upper, vr_s
             
     return best_weights, max_score
 
-def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, win_prob, health_scores, vr, atr, supertrend_dir=None, dynamic_weights=None, m_colors=None):
+def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, health_scores, vr, atr, supertrend_dir=None, dynamic_weights=None, m_colors=None):
     """
     Generates AI-driven entry strategy (Swing Trading Optimized v3.5)
     """
@@ -740,7 +752,6 @@ def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, win_prob, health_sc
     
     price_change_3d = (current_price - data['Close'].iloc[-4]) / data['Close'].iloc[-4]
     if price_change_3d > 0.03: v_raw += 25 
-    if win_prob > 55: v_raw += 20
     
     # 綜合評分
     total_score = (min(100, t_raw) * w_tech) + (min(100, f_raw) * w_fund) + (min(100, v_raw) * w_vol)
@@ -862,76 +873,6 @@ def get_institutional_strategy(data, i, health_scores=None, ema_data=None, vol_m
             strategies.append({"name": "CAN SLIM", "desc": "O'Neil: 價格帶量突破且具備高成長動能，機構資金介入。"})
         
     return strategies
-
-def run_advanced_mc_simulation(current_price, data, ai_score, atr, ticker_metadata=None, supertrend_dir=None, days=30, simulations=1000):
-    """
-    重構後的蒙地卡羅模擬引擎 v4.0 (Advanced MC Engine):
-    - 採用動態波動率 (Dynamic Volatility) 與 EWMA 模型
-    - 整合趨勢加速度 (Trend Acceleration) 與 均值回歸 (EMA200)
-    - 使用 Student's t-分佈模擬肥尾風險，並根據近期偏度調整
-    """
-    returns = data['Close'].pct_change().dropna()
-    
-    # 1. 動態波動率計算 (EWMA Volatility)
-    # 給予近期波動更高權重，以更精確反應當前市場情緒
-    recent_returns = returns.tail(20)
-    ewma_vol = recent_returns.ewm(span=10).std().iloc[-1]
-    hist_vol = returns.std()
-    
-    # 2. 計算多因子漂移率 (Drift)
-    # AI 信心偏誤
-    ai_bias = (ai_score - 50) / 3500 
-    
-    # 趨勢強度與加速度 (Trend Strength & Acceleration)
-    ema20_series = data['Close'].ewm(span=20).mean()
-    ema20_slope = (ema20_series.iloc[-1] - ema20_series.iloc[-5]) / ema20_series.iloc[-5]
-    trend_bias = ema20_slope * 0.15 # 將均線斜率轉換為漂移偏誤
-    
-    # SuperTrend 趨勢確認
-    indicator_bias = 0.0012 * supertrend_dir if supertrend_dir is not None else 0
-    
-    # 均值回歸 (Mean Reversion) - 修正項
-    ema200 = data['Close'].ewm(span=200).mean().iloc[-1]
-    reversion_strength = 0.08
-    dist_from_mean = (ema200 - current_price) / current_price
-    reversion_bias = dist_from_mean * reversion_strength / days
-    
-    # 法人目標價影響
-    target_bias = 0
-    if ticker_metadata and ticker_metadata.get('targetMedianPrice'):
-        target_price = ticker_metadata.get('targetMedianPrice')
-        if target_price > 0:
-            target_dist = (target_price - current_price) / current_price
-            target_bias = target_dist * 0.15 / days
-
-    # 綜合預期回報率 (Expected Return)
-    mu = returns.mean() + ai_bias + trend_bias + indicator_bias + reversion_bias + target_bias
-    
-    # 綜合波動率 (Adjusted Volatility)
-    # 考慮 ATR 與 EWMA 波動率的極大值，並針對弱勢行情增加波動溢價
-    atr_vol = (atr / current_price) / np.sqrt(14) # 將 ATR 轉換為每日波動估計
-    base_vol = max(ewma_vol, atr_vol, hist_vol * 0.8)
-    
-    # 若處於空頭市場 (價格 < EMA200)，增加 15% 波動率以反映風險
-    if current_price < ema200:
-        base_vol *= 1.15
-        
-    # 3. 模擬執行 (Student's t-分佈)
-    df_student = 3.5 # 較低的自由度以模擬更頻繁的極端行情 (肥尾)
-    sim_results = np.zeros((days + 1, simulations))
-    sim_results[0] = current_price
-    
-    # 預先生成隨機衝擊
-    random_shocks = student_t.rvs(df=df_student, loc=mu, scale=base_vol, size=(days, simulations))
-    
-    for t in range(1, days + 1):
-        # 價格演化：幾何布朗運動變體
-        sim_results[t] = sim_results[t-1] * (1 + random_shocks[t-1])
-        # 波動率動態調整 (Volatility Clustering)
-        # 隨機調整波動率，模擬波動聚集效應
-        base_vol *= np.random.normal(1.0, 0.01)
-        
-    return pd.DataFrame(sim_results)
 
 def get_ai_exit_strategy(data, rsi, bb_upper, target_median, atr, health_scores=None, supertrend_dir=None, m_colors=None):
     """
@@ -1317,14 +1258,14 @@ MARKET_CONNECTED
             
         # Initial score for drift calculation and signal filtering
         initial_ai_strat = get_ai_entry_strategy(
-            data, 
-            float(rsi_series.iloc[-1]) if not rsi_series.empty else 50, 
-            float(ema20.iloc[-1]) if not ema20.empty else current_price, 
-            float(ema50.iloc[-1]) if not ema50.empty else current_price, 
-            float(bb_lower.iloc[-1]) if not bb_lower.empty else current_price * 0.95, 
-            50, health_scores, 
-            float(vr_series.iloc[-1]) if not vr_series.empty else 100, 
-            float(atr_series.iloc[-1]) if not atr_series.empty else 0, 
+            data=data, 
+            rsi=float(rsi_series.iloc[-1]) if not rsi_series.empty else 50, 
+            ema20=float(ema20.iloc[-1]) if not ema20.empty else current_price, 
+            ema50=float(ema50.iloc[-1]) if not ema50.empty else current_price, 
+            bb_lower=float(bb_lower.iloc[-1]) if not bb_lower.empty else current_price * 0.95, 
+            health_scores=health_scores, 
+            vr=float(vr_series.iloc[-1]) if not vr_series.empty else 100, 
+            atr=float(atr_series.iloc[-1]) if not atr_series.empty else 0, 
             supertrend_dir=supertrend_dir.iloc[-1] if not supertrend_dir.empty else 0,
             dynamic_weights=best_weights
         )
@@ -1380,7 +1321,8 @@ MARKET_CONNECTED
                     
                     # 計算該時間點的 AI 買入評分
                     h_ai = get_ai_entry_strategy(
-                        data.iloc[:i+1], h_rsi, h_ema20, h_ema50, h_bb_lower, 55, health_scores, h_vr, h_atr, 
+                        data=data.iloc[:i+1], rsi=h_rsi, ema20=h_ema20, ema50=h_ema50, bb_lower=h_bb_lower, 
+                        health_scores=health_scores, vr=h_vr, atr=h_atr, 
                         supertrend_dir=supertrend_dir.iloc[i],
                         dynamic_weights=best_weights, 
                         m_colors=m_colors
@@ -1471,34 +1413,28 @@ MARKET_CONNECTED
         
         st.markdown("---")
         
-        # --- AI 模擬與決策計算 (AI Simulation & Decision Calculations) ---
-        with st.spinner(f"正在生成 {ticker_input} 未來模擬路徑與決策分析..."):
+        # --- AI 決策計算 (AI Decision Calculations) ---
+        with st.spinner(f"正在生成 {ticker_input} 決策分析..."):
             atr = float(atr_series.iloc[-1])
             
-            sim_df_full = run_advanced_mc_simulation(
-                current_price, data, ai_score, atr, ticker_metadata=ticker_metadata, 
-                supertrend_dir=supertrend_dir.iloc[-1],
-                days=60, simulations=1000
-            )
-            
             # 將關鍵數據存入 session_state 以確保在不同分頁間切換時數據不會消失
-            st.session_state['sim_df_full'] = sim_df_full
             st.session_state['ai_score'] = ai_score
             st.session_state['atr'] = atr
             st.session_state['current_price'] = current_price
             st.session_state['ticker_input'] = ticker_input
-            st.session_state['prediction_dates'] = [data.index[-1] + timedelta(days=i) for i in range(len(sim_df_full))]
-            
-            # 提取 7 天模擬數據用於摘要 (Extract 7-day stats for summary)
-            sim_df_7d = sim_df_full.iloc[0:8, :]
-            median_sim_7d = sim_df_7d.median(axis=1).iloc[-1]
-            win_prob_7d = (sim_df_7d.iloc[-1, :] > current_price).mean() * 100
             
             # AI 進出場策略計算 (AI Entry/Exit Strategy Calculation)
             entry_strategy = get_ai_entry_strategy(
-                data, float(rsi_series.iloc[-1]), float(ema20.iloc[-1]), float(ema50.iloc[-1]), 
-                float(bb_lower.iloc[-1]), win_prob_7d, health_scores, 
-                float(vr_series.iloc[-1]), float(atr_series.iloc[-1]), dynamic_weights=best_weights,
+                data=data, 
+                rsi=float(rsi_series.iloc[-1]), 
+                ema20=float(ema20.iloc[-1]), 
+                ema50=float(ema50.iloc[-1]), 
+                bb_lower=float(bb_lower.iloc[-1]), 
+                health_scores=health_scores, 
+                vr=float(vr_series.iloc[-1]), 
+                atr=float(atr_series.iloc[-1]), 
+                supertrend_dir=supertrend_dir.iloc[-1],
+                dynamic_weights=best_weights,
                 m_colors=m_colors
             )
             
@@ -1508,10 +1444,10 @@ MARKET_CONNECTED
                 target_median, float(atr_series.iloc[-1]), health_scores=health_scores, m_colors=m_colors
             )
             
-        tab1, tab2, tab3, tab4 = st.tabs([t["tab_overview"], t["tab_tech"], t["tab_predict"], t["tab_news"]])
+        tab1, tab2, tab3 = st.tabs([t["tab_overview"], t["tab_tech"], t["tab_news"]])
 
         with tab1:
-            # 1. 快速建議與預測摘要 (Quick Recommendation & Prediction Summary)
+            # 1. 快速建議與分析摘要 (Quick Recommendation & Analysis Summary)
             insight_report = get_expert_insight(
                 resolved_ticker, 
                 current_price, 
@@ -1590,16 +1526,6 @@ MARKET_CONNECTED
     </div>
     <div style="color: #3FB950; font-size: 0.75rem; font-weight: 700; margin-bottom: 4px;">出場保命線: {c_symbol}{exit_strategy['trailing_stop']:.1f}</div>
     <div style="color: #C9D1D9; font-size: 0.7rem; line-height: 1.3;">{exit_strategy['desc']}</div>
-</div>
-
-<!-- 7日趨勢預測 -->
-<div class="data-card" style="border-left: 5px solid #BC8CF2; height: 160px; margin-bottom: 0; background: linear-gradient(180deg, rgba(188, 140, 242, 0.05) 0%, #161B22 100%);">
-    <div style="color: #8B949E; font-size: 0.7rem; margin-bottom: 5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">7日趨勢預測</div>
-    <div style="display: flex; align-items: baseline; gap: 6px; margin-8px;">
-        <span style="font-size: 1.3rem; font-weight: 800; color: #BC8CF2;">{c_symbol}{median_sim_7d:.1f}</span>
-        <span style="color: {"#3FB950" if win_prob_7d > 50 else "#FF7B72"}; font-size: 0.8rem; font-weight: 700;">({win_prob_7d:.1f}%)</span>
-    </div>
-    <div style="color: #8B949E; font-size: 0.7rem; margin-top: 20px; border-top: 1px solid #30363D; padding-top: 8px;">蒙地卡羅模擬勝率</div>
 </div>
 </div>''', unsafe_allow_html=True)
 
@@ -1899,36 +1825,6 @@ MARKET_CONNECTED
     <div style="display: flex; justify-content: space-between; font-size: 1.0rem; margin-bottom: 8px;"><span style="color: #8B949E;">52 週最低</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('fiftyTwoWeekLow', 'N/A')}</span></div>
     <div style="display: flex; justify-content: space-between; font-size: 1.0rem;"><span style="color: #8B949E;">貝塔係數 (Beta)</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('beta', 'N/A')}</span></div>
 </div>
-<div class="data-card" style="background: rgba(48, 54, 61, 0.18); padding: 18px; margin-bottom: 0;">
-    <p style="color: #BC8CFF; font-size: 0.85rem; font-weight: 800; margin-bottom: 12px; text-transform: uppercase; border-bottom: 1px solid rgba(188, 140, 255, 0.25); padding-bottom: 8px; letter-spacing: 0.8px;">分析師預測 (Forecast)</p>
-    <div style="display: flex; justify-content: space-between; font-size: 1.0rem; margin-bottom: 8px;">
-        <span style="color: #8B949E;">目標中位價</span>
-        <span style="font-weight: 700; color: #58A6FF;">{ticker_metadata.get('targetMedianPrice', 'N/A')}</span>
-    </div>
-    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 8px;">
-        <span style="color: #8B949E;">潛在漲幅</span>
-        <span style="font-weight: 700; color: {m_colors['up'] if (ticker_metadata.get('targetMedianPrice', current_price) / current_price) - 1 > 0 else m_colors['down']};">
-            {f"+{((ticker_metadata.get('targetMedianPrice', current_price) / current_price) - 1) * 100:.1f}%" if ticker_metadata.get('targetMedianPrice') else 'N/A'}
-        </span>
-    </div>
-    <div style="margin-top: 10px;">
-        <div style="position: relative; width: 100%; height: 8px; background: #21262d; border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.05);">
-            <div style="position: absolute; left: 0; top: 0; height: 100%; width: 100%; background: linear-gradient(90deg, {m_colors['down']} 0%, #787b86 50%, {m_colors['up']} 100%); opacity: 0.25;"></div>
-            <div style="position: absolute; 
-                left: {
-                    (
-                        min(100, max(0, ((current_price - ticker_metadata.get('targetLowPrice', current_price*0.8)) / 
-                        (max(0.01, ticker_metadata.get('targetHighPrice', current_price*1.2) - ticker_metadata.get('targetLowPrice', current_price*0.8))) * 100)))
-                    ) if ticker_metadata.get('targetHighPrice') and ticker_metadata.get('targetHighPrice') != ticker_metadata.get('targetLowPrice') else 50
-                }%; 
-                top: 0; height: 100%; width: 4px; background: #FFFFFF; box-shadow: 0 0 8px rgba(255,255,255,0.8); border-radius: 2px;"></div>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 0.6rem; color: #8B949E; margin-top: 4px; font-weight: 500;">
-            <span>目標低</span>
-            <span>目標高</span>
-        </div>
-    </div>
-</div>
 </div>
 {perf_html}
 </div>''', unsafe_allow_html=True)
@@ -2159,175 +2055,6 @@ MARKET_CONNECTED
 
 
         with tab3:
-            # Prediction Page: Enhanced Monte Carlo & Forecast
-            st.subheader("🔮 未來路徑機率模擬 (AI 增強版)")
-            
-            # 從 session_state 讀取數據
-            sim_df_full = st.session_state.get("sim_df_full")
-            ai_score = st.session_state.get("ai_score")
-            atr = st.session_state.get("atr")
-            current_price = st.session_state.get("current_price")
-            ticker_input = st.session_state.get("ticker_input", "股票代碼")
-            prediction_dates = st.session_state.get("prediction_dates")
-
-            if sim_df_full is not None and prediction_dates is not None:
-                # 確保日期格式對 Plotly 友好
-                plot_dates = [d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d) for d in prediction_dates]
-                
-                # 取得更精細的分位數數據
-                p10 = sim_df_full.quantile(0.10, axis=1).values
-                p25 = sim_df_full.quantile(0.25, axis=1).values
-                p50 = sim_df_full.quantile(0.50, axis=1).values
-                p75 = sim_df_full.quantile(0.75, axis=1).values
-                p90 = sim_df_full.quantile(0.90, axis=1).values
-                
-                # 計算期望值 (均值)
-                expected_path = sim_df_full.mean(axis=1).values
-                
-                fig_mc = go.Figure()
-                
-                # 1. 繪製 80% 信心區間 (P10 - P90) - 更柔和的漸層
-                fig_mc.add_trace(go.Scatter(
-                    x=plot_dates, y=p90,
-                    line=dict(width=0),
-                    showlegend=False,
-                    hoverinfo="skip"
-                ))
-                fig_mc.add_trace(go.Scatter(
-                    x=plot_dates, y=p10,
-                    fill="tonexty",
-                    fillcolor="rgba(88, 166, 255, 0.08)",
-                    line=dict(width=0),
-                    name="80% 信心區間 (P10-P90)"
-                ))
-                
-                # 2. 繪製 50% 核心區間 (P25 - P75) - 較深的層次感
-                fig_mc.add_trace(go.Scatter(
-                    x=plot_dates, y=p75,
-                    line=dict(width=0),
-                    showlegend=False,
-                    hoverinfo="skip"
-                ))
-                fig_mc.add_trace(go.Scatter(
-                    x=plot_dates, y=p25,
-                    fill="tonexty",
-                    fillcolor="rgba(88, 166, 255, 0.18)",
-                    line=dict(width=0),
-                    name="50% 核心區間 (P25-P75)"
-                ))
-                
-                # 3. 繪製期望值路徑 - 金色發光感
-                fig_mc.add_trace(go.Scatter(
-                    x=plot_dates, y=expected_path,
-                    line=dict(color="#FFD700", width=2.5, shape='spline'),
-                    name="預期平均路徑"
-                ))
-
-                # 4. 繪製中位數路徑 - 藍色發光感
-                fig_mc.add_trace(go.Scatter(
-                    x=plot_dates, y=p50,
-                    line=dict(color="#58a6ff", width=2, dash="dash", shape='spline'),
-                    name="中位數路徑"
-                ))
-                
-                fig_mc.update_layout(
-                    title=dict(
-                        text=f"<b>{resolved_ticker} 未來 60 日波段路徑機率分佈預測 (AI 增強版)</b>", 
-                        font=dict(size=18, color="#F0F6FC"),
-                        x=0.01, y=0.95
-                    ),
-                    template="plotly_dark",
-                    hovermode="x unified",
-                    height=550,
-                    margin=dict(l=10, r=10, t=80, b=20),
-                    legend=dict(
-                        orientation="h", 
-                        yanchor="bottom", y=1.02, 
-                        xanchor="right", x=1,
-                        bgcolor="rgba(0,0,0,0)",
-                        font=dict(size=11, color="#8B949E")
-                    ),
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    hoverlabel=dict(bgcolor="#161B22", font_size=12, font_family="monospace")
-                )
-
-                fig_mc.update_xaxes(
-                    showgrid=True, gridwidth=1, gridcolor='rgba(48, 54, 61, 0.2)',
-                    tickfont=dict(color="#8B949E", size=10),
-                    title_text=""
-                )
-                fig_mc.update_yaxes(
-                    showgrid=True, gridwidth=1, gridcolor='rgba(48, 54, 61, 0.2)',
-                    tickfont=dict(color="#8B949E", size=10),
-                    side="right",
-                    title_text=""
-                )
-                
-                st.plotly_chart(fig_mc, width="stretch", key=f"mc_chart_{resolved_ticker}", theme="streamlit")
-                
-                # 模擬指標面板 (更新為更豐富的數據)
-                st.markdown("<div style=\"margin-top: -20px;\"></div>", unsafe_allow_html=True)
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    final_expected = expected_path[-1]
-                    exp_return = (final_expected / current_price - 1) * 100
-                    st.metric("預期平均目標", f"{final_expected:.2f}", f"{exp_return:+.2f}%")
-                
-                with col2:
-                    prob_profit = (sim_df_full.iloc[-1] > current_price).mean() * 100
-                    st.metric("上漲機率", f"{prob_profit:.1f}%", f"{'偏多' if prob_profit > 55 else '偏空' if prob_profit < 45 else '中性'}")
-                
-                with col3:
-                    # 修正風險指標為更直觀的下跌空間
-                    max_downside = (p10[-1] / current_price - 1) * 100
-                    st.metric("保守下行空間 (P10)", f"{p10[-1]:.2f}", f"{max_downside:.2f}%", delta_color="inverse")
-                
-                with col4:
-                    max_upside = (p90[-1] / current_price - 1) * 100
-                    st.metric("樂觀上行空間 (P90)", f"{p90[-1]:.2f}", f"{max_upside:+.2f}%")
-                    
-                st.info(f"💡 **核心模型更新**：採用 **Student's t-分佈** 模擬市場極端走勢 (肥尾)，並整合 **EMA200 均值回歸** 機制，使預測更貼近真實市場特徵。")
-                
-                # 關鍵節點表格 (更新分位數)
-                st.markdown("<p style=\"color: #FFFFFF; font-size: 1.1rem; font-weight: bold; margin-top: 30px; margin-bottom: 15px; border-left: 4px solid #58A6FF; padding-left: 10px;\">📅 預測價格區間詳情 (分位數分析)</p>", unsafe_allow_html=True)
-                
-                table_html = """<style>
-.mc-table { width: 100%; border-collapse: collapse; color: #FFFFFF; background: rgba(255, 255, 255, 0.02); border-radius: 8px; overflow: hidden; }
-.mc-table thead { background: rgba(88, 166, 255, 0.15); border-bottom: 2px solid #30363D; }
-.mc-table th, .mc-table td { padding: 12px; text-align: left; }
-.price-cell { text-align: right; font-family: monospace; }
-</style>
-<table class="mc-table">
-<thead>
-<tr>
-<th>預測節點</th>
-<th style="text-align: right; color: #FF7B72;">極端悲觀 (P10)</th>
-<th style="text-align: right; color: #FFA657;">保守預期 (P25)</th>
-<th style="text-align: right; color: #FFFFFF;">中位數 (P50)</th>
-<th style="text-align: right; color: #7EE787;">樂觀預期 (P75)</th>
-<th style="text-align: right; color: #D2A8FF;">極端樂觀 (P90)</th>
-</tr>
-</thead>
-<tbody>"""
-                for day in [5, 10, 20, 30]:
-                    if day < len(sim_df_full):
-                        row = sim_df_full.iloc[day]
-                        table_html += f"""<tr>
-<td>T+{day} 天 ({prediction_dates[day].strftime("%m/%d")})</td>
-<td class="price-cell">{c_symbol}{row.quantile(0.10):.2f}</td>
-<td class="price-cell">{c_symbol}{row.quantile(0.25):.2f}</td>
-<td class="price-cell" style="font-weight: bold;">{c_symbol}{row.quantile(0.50):.2f}</td>
-<td class="price-cell">{c_symbol}{row.quantile(0.75):.2f}</td>
-<td class="price-cell">{c_symbol}{row.quantile(0.90):.2f}</td>
-</tr>"""
-                table_html += "</tbody></table>"
-                st.markdown(table_html, unsafe_allow_html=True)
-            else:
-                st.warning("請先在「即時分析」分頁完成 AI 分析以生成預測數據。")
-            
-        with tab4:
             # News Page - 使用原生組件避免佈局崩潰
             st.subheader(f"📰 {ticker_display_name} 即時市場新聞")
             
@@ -2430,5 +2157,14 @@ MARKET_CONNECTED
         )
     else:
         st.warning(t["no_data"])
+        with st.expander("🔍 診斷資訊 (Diagnostic Info)"):
+            st.write(f"輸入代碼: `{ticker_input}`")
+            st.write(f"解析代碼: `{resolved_ticker}`")
+            st.write(f"查詢範圍: `{period}`")
+            st.write(f"資料密度: `{interval}`")
+            if st.button("嘗試清除快取並重試"):
+                st.cache_data.clear()
+                st.rerun()
+            st.info("提示：台股請確保代碼後有 .TW 或 .TWO，例如 2330.TW")
 else:
     st.info("請在側邊欄輸入股票代碼以開始分析（例如：2330.TW）")
