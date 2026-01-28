@@ -22,6 +22,7 @@ import feedparser
 import urllib.parse
 import re
 from scipy.stats import t as student_t
+import requests
 
 # --- SYSTEM CONFIGURATION ---
 SYSTEM_SETTINGS = {
@@ -37,110 +38,449 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- SESSION STATE INITIALIZATION & SYNC ---
+if 'ticker_input' not in st.session_state:
+    st.session_state.ticker_input = "2330.TW"
+if 'main_ticker_input' not in st.session_state:
+    st.session_state.main_ticker_input = st.session_state.ticker_input
+
+# Handle pending ticker updates from other pages (e.g., Sniper)
+if 'pending_ticker_update' in st.session_state:
+    new_ticker = st.session_state.pending_ticker_update
+    st.session_state.ticker_input = new_ticker
+    st.session_state.main_ticker_input = new_ticker
+    del st.session_state.pending_ticker_update
+
 # Custom CSS for Institutional Look
 st.markdown("""
     <style>
-    /* Global Background and Text */
+    /* 現代化機構級深色主題變數 */
+    :root {
+        --bg-main: #0E1117;
+        --bg-secondary: #161B22;
+        --accent-blue: #58a6ff;
+        --accent-gold: #D29922;
+        --accent-up: #26a69a;
+        --accent-down: #ef5350;
+        --text-primary: #E6EDF3;
+        --text-secondary: #8B949E;
+        --border-color: rgba(48, 54, 61, 0.8);
+        --glass-bg: rgba(22, 27, 34, 0.75);
+    }
+
+    /* 全局背景與字體 */
     html, body, [data-testid="stAppViewContainer"], .stApp {
-        background-color: #0E1117 !important;
-        color: #E0E0E0 !important;
+        background: radial-gradient(circle at top right, #1a1f2e, #0e1117) !important;
+        color: var(--text-primary) !important;
+        font-family: 'Inter', 'PingFang TC', -apple-system, sans-serif !important;
     }
-    
-    /* Sidebar Styling - Ensure visibility and functionality */
+
+    /* 隱藏預設元素並優化頂部空間 */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {
+        background-color: transparent !important;
+    }
+    /* 確保側邊欄切換按鈕可見並美化 */
+    button[kind="header"] {
+        color: var(--text-secondary) !important;
+        background-color: rgba(255, 255, 255, 0.05) !important;
+        border-radius: 50% !important;
+        transition: all 0.3s ease !important;
+    }
+    button[kind="header"]:hover {
+        color: var(--accent-blue) !important;
+        background-color: rgba(88, 166, 255, 0.1) !important;
+    }
+
+    /* 側邊欄美化 */
     section[data-testid="stSidebar"] {
-        background-color: #161B22 !important;
-        border-right: 1px solid #30363D !important;
+        background: linear-gradient(180deg, #161B22 0%, #0D1117 100%) !important;
+        border-right: 1px solid var(--border-color) !important;
+        box-shadow: 5px 0 15px rgba(0,0,0,0.3) !important;
     }
     
-    /* Settings Content Visibility */
     section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
-        background-color: #161B22 !important;
-        color: #E0E0E0 !important;
-    }
-
-    /* Force Sidebar Button Visibility (Crucial Fix) */
-    button[data-testid="stSidebarCollapseButton"],
-    [data-testid="stSidebarCollapsedControl"] button {
         background-color: transparent !important;
-        color: white !important;
-        border: none !important;
-        z-index: 9999 !important;
-        opacity: 0.8 !important;
-        visibility: visible !important;
+        padding-top: 2rem !important;
     }
 
-    /* SVG Icon color in buttons */
-    button[data-testid="stSidebarCollapseButton"] svg,
-    [data-testid="stSidebarCollapsedControl"] button svg {
-        fill: white !important;
-        stroke: white !important;
-    }
-
-    /* Metric Styling - Exactly matching user screenshot */
-    [data-testid="stMetric"] {
-        background: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-    }
-    
-    [data-testid="stMetricValue"] {
-        font-size: 2.8rem !important;
-        font-weight: 700 !important;
-        color: #FFFFFF !important;
-    }
-    
-    [data-testid="stMetricLabel"] {
-        font-size: 1rem !important;
-        color: #8B949E !important;
-        font-weight: 400 !important;
-        margin-bottom: 5px !important;
-    }
-    
-    [data-testid="stMetricDelta"] {
-        background: rgba(35, 134, 54, 0.2) !important;
-        color: #3FB950 !important;
-        padding: 4px 12px !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        font-size: 0.9rem !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        margin-top: 10px !important;
-    }
-
-    /* Header Background */
-    [data-testid="stHeader"] {
-        background-color: transparent !important;
-    }
-
-    .main-header {
-        font-weight: 800;
-        color: #FFFFFF;
-        font-size: 2.5rem !important;
-        margin-bottom: 20px;
-    }
-    
-    /* Tabs Styling - Simple Icons + Text */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 20px;
-        background-color: transparent !important;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background-color: transparent !important;
-        border: none !important;
-        color: #8B949E !important;
+    /* 側邊欄標題 */
+    section[data-testid="stSidebar"] h1, 
+    section[data-testid="stSidebar"] h2, 
+    section[data-testid="stSidebar"] h3 {
+        color: var(--accent-blue) !important;
+        font-weight: 800 !important;
+        letter-spacing: 1px !important;
+        text-transform: uppercase !important;
         font-size: 1.1rem !important;
-        padding: 10px 5px !important;
+        margin-bottom: 1.5rem !important;
+        padding-left: 0.5rem !important;
+        border-left: 4px solid var(--accent-blue) !important;
     }
-    .stTabs [aria-selected="true"] {
-        color: #FFFFFF !important;
-        border-bottom: 2px solid #58A6FF !important;
+
+    /* 側邊欄按鈕美化 - 統一機構風格 */
+    section[data-testid="stSidebar"] .stButton > button {
+        width: 100% !important;
+        border-radius: 10px !important;
+        background: rgba(255, 255, 255, 0.02) !important;
+        color: var(--text-primary) !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        padding: 0.8rem 1.2rem !important;
+        transition: all 0.25s ease !important;
+        font-weight: 600 !important;
+        margin-bottom: 10px !important;
+        text-align: left !important;
+        display: flex !important;
+        align-items: center !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1) !important;
+    }
+
+    section[data-testid="stSidebar"] .stButton > button:hover {
+        border-color: var(--accent-blue) !important;
+        background: rgba(88, 166, 255, 0.08) !important;
+        color: var(--accent-blue) !important;
+        transform: translateX(4px) !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
+    }
+
+    /* 股市狙擊手按鈕特殊色 */
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] div.stButton > button {
+        border-color: rgba(210, 153, 34, 0.3) !important;
+        color: var(--accent-gold) !important;
     }
     
-    /* Horizontal Line */
-    hr {
-        border-top: 1px solid #30363D !important;
-        margin: 25px 0 !important;
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] div.stButton > button:hover {
+        border-color: var(--accent-gold) !important;
+        background: rgba(210, 153, 34, 0.1) !important;
+    }
+
+    /* 數據卡片 (Data Card) - 玻璃擬態 */
+    .data-card {
+        background: var(--glass-bg) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+        border-radius: 16px !important;
+        padding: 24px !important;
+        border: 1px solid var(--border-color) !important;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+        margin-bottom: 24px !important;
+        transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1) !important;
+        position: relative !important;
+        overflow: hidden !important;
+    }
+
+    .data-card::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(88, 166, 255, 0.3), transparent);
+    }
+
+    .data-card:hover {
+        border-color: rgba(88, 166, 255, 0.5) !important;
+        transform: translateY(-5px) !important;
+        box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6) !important;
+        background: rgba(22, 27, 34, 0.85) !important;
+    }
+
+    /* 指標卡片 (Metric Card) - 現代化玻璃質感 */
+    .metric-card {
+        background: rgba(255, 255, 255, 0.03) !important;
+        backdrop-filter: blur(8px) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: 16px !important;
+        padding: 20px !important;
+        text-align: center !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        height: 100% !important;
+        min-height: 120px !important; /* 確保高度一致 */
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        position: relative !important;
+        width: 100% !important; /* 強制填滿容器寬度 */
+    }
+
+    .metric-card:hover {
+        background: rgba(88, 166, 255, 0.05) !important;
+        border-color: var(--accent-blue) !important;
+        transform: scale(1.02) !important;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
+    }
+
+    .metric-label {
+        color: var(--text-secondary) !important;
+        font-size: 0.85rem !important;
+        font-weight: 700 !important;
+        margin-bottom: 8px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1.5px !important;
+    }
+
+    .metric-value {
+        color: var(--text-primary) !important;
+        font-size: 2rem !important;
+        font-weight: 900 !important;
+        font-family: 'JetBrains Mono', 'Inter', monospace !important;
+        line-height: 1.1 !important;
+        background: linear-gradient(180deg, #FFFFFF 0%, #ADBAC7 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    /* 資訊區塊 (Info Box) - 增強視覺層次 */
+    .info-box {
+        background: rgba(13, 17, 23, 0.4) !important;
+        border-radius: 12px !important;
+        padding: 16px !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        border-left: 4px solid var(--accent-blue) !important;
+        height: 100% !important;
+        transition: all 0.3s ease !important;
+    }
+
+    .info-box:hover {
+        background: rgba(13, 17, 23, 0.6) !important;
+        border-color: rgba(88, 166, 255, 0.2) !important;
+    }
+
+    .info-header {
+        font-size: 0.95rem !important;
+        font-weight: 800 !important;
+        color: var(--accent-blue) !important;
+        margin-bottom: 12px !important;
+        border-bottom: 1px solid rgba(88, 166, 255, 0.15) !important;
+        padding-bottom: 8px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }
+
+    .info-row {
+        display: flex !important;
+        justify-content: space-between !important;
+        margin-bottom: 8px !important;
+        font-size: 0.9rem !important;
+    }
+
+    .info-label { color: var(--text-secondary) !important; }
+    .info-value { color: var(--text-primary) !important; font-weight: 600 !important; }
+
+    /* 分頁 Tabs 美化 - 現代化導航 */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 24px !important;
+        background-color: transparent !important;
+        border-bottom: 1px solid var(--border-color) !important;
+        padding: 0 10px !important;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        height: 54px !important;
+        background-color: transparent !important;
+        padding: 10px 4px !important;
+        border: none !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        color: var(--text-secondary) !important;
+        font-weight: 600 !important;
+        font-size: 1rem !important;
+        letter-spacing: 0.5px !important;
+    }
+
+    .stTabs [data-baseweb="tab"]:hover {
+        color: var(--text-primary) !important;
+        transform: translateY(-2px) !important;
+    }
+
+    .stTabs [aria-selected="true"] {
+        color: var(--accent-blue) !important;
+        background-color: transparent !important;
+    }
+
+    /* 自定義 Tab 下底線動畫 */
+    .stTabs [data-baseweb="tab-highlight"] {
+        background-color: var(--accent-blue) !important;
+        height: 3px !important;
+        border-radius: 3px 3px 0 0 !important;
+    }
+
+    /* 新聞卡片清單 - 現代化卡片 */
+    .news-item {
+        padding: 16px 20px !important;
+        background: rgba(255, 255, 255, 0.02) !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        border-radius: 12px !important;
+        margin-bottom: 16px !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        position: relative !important;
+        overflow: hidden !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 8px !important;
+    }
+
+    .news-item:hover {
+        background: rgba(88, 166, 255, 0.04) !important;
+        border-color: rgba(88, 166, 255, 0.2) !important;
+        transform: translateX(6px) !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2) !important;
+    }
+
+    .news-item::before {
+        content: "" !important;
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        height: 100% !important;
+        width: 0 !important;
+        background: var(--accent-blue) !important;
+        transition: width 0.3s ease !important;
+        opacity: 0.8 !important;
+    }
+
+    .news-item:hover::before {
+        width: 4px !important;
+    }
+
+    .news-title {
+        color: var(--text-primary) !important;
+        font-size: 1.05rem !important;
+        font-weight: 700 !important;
+        line-height: 1.4 !important;
+        text-decoration: none !important;
+    }
+
+    .news-meta {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        font-size: 0.8rem !important;
+        color: var(--text-secondary) !important;
+    }
+
+    /* 滾動條美化 */
+    ::-webkit-scrollbar {
+        width: 8px !important;
+        height: 8px !important;
+    }
+    ::-webkit-scrollbar-track {
+        background: var(--bg-main) !important;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: #30363d !important;
+        border-radius: 10px !important;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: #484f58 !important;
+    }
+
+    /* 選項標籤 (Tags) */
+    .scan-tag {
+        display: inline-block !important;
+        padding: 4px 10px !important;
+        border-radius: 6px !important;
+        font-size: 0.75rem !important;
+        font-weight: 700 !important;
+        margin-right: 6px !important;
+        margin-bottom: 6px !important;
+        background: rgba(88, 166, 255, 0.15) !important;
+        color: var(--accent-blue) !important;
+        border: 1px solid rgba(88, 166, 255, 0.3) !important;
+    }
+
+    /* 統計數字卡片 (Stat Card) - 機構級樣式 */
+    .stat-card {
+        background: var(--glass-bg) !important;
+        backdrop-filter: blur(16px) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: 16px !important;
+        padding: 24px !important;
+        height: 100% !important;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.5) !important;
+        position: relative !important;
+        overflow: hidden !important;
+    }
+
+    .stat-header {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: flex-start !important;
+        margin-bottom: 24px !important;
+        border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+        padding-bottom: 16px !important;
+    }
+
+    .stat-title-group {
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+    }
+
+    .stat-title-bar {
+        width: 4px !important;
+        height: 24px !important;
+        border-radius: 2px !important;
+    }
+
+    .stat-title {
+        font-size: 1.25rem !important;
+        font-weight: 800 !important;
+        color: var(--text-primary) !important;
+        margin: 0 !important;
+    }
+
+    .stat-badge {
+        padding: 4px 12px !important;
+        border-radius: 6px !important;
+        font-size: 0.75rem !important;
+        font-weight: 800 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }
+
+    .rating-grid {
+        display: grid !important;
+        grid-template-columns: repeat(3, 1fr) !important;
+        gap: 16px !important;
+        margin-bottom: 24px !important;
+    }
+
+    .rating-item {
+        background: rgba(255,255,255,0.03) !important;
+        padding: 16px !important;
+        border-radius: 12px !important;
+        text-align: center !important;
+        border: 1px solid rgba(255,255,255,0.05) !important;
+    }
+
+    .rating-label {
+        color: var(--text-secondary) !important;
+        font-size: 0.75rem !important;
+        font-weight: 700 !important;
+        margin-bottom: 8px !important;
+        text-transform: uppercase !important;
+    }
+
+    .rating-value {
+        font-size: 1.6rem !important;
+        font-weight: 900 !important;
+        color: var(--accent-blue) !important;
+        font-family: 'JetBrains Mono', monospace !important;
+    }
+
+    .rating-denominator {
+        font-size: 0.8rem !important;
+        color: var(--text-secondary) !important;
+        margin-left: 2px !important;
+    }
+
+    .info-grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 16px !important;
+        margin-bottom: 16px !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -200,6 +540,11 @@ def resolve_ticker(ticker):
     # 如果是 2330TW 這種格式 (沒加點)
     if re.match(r'^(\d{4,6})(TW|TWO)$', ticker):
         match = re.match(r'^(\d{4,6})(TW|TWO)$', ticker)
+        return f"{match.group(1)}.{match.group(2)}"
+
+    # 如果是 2330 TW 這種格式 (空格分隔)
+    if re.match(r'^(\d{4,6})\s+(TW|TWO)$', ticker):
+        match = re.match(r'^(\d{4,6})\s+(TW|TWO)$', ticker)
         return f"{match.group(1)}.{match.group(2)}"
 
     # 如果全是數字 (台股代碼)
@@ -338,10 +683,10 @@ def get_financial_data(ticker):
     except Exception:
         return None
 
-def get_signal_score(data, rsi_val, macd_val, signal_val, supertrend_dir=None, m_colors=None):
+def get_signal_score(data, rsi_val, macd_val, signal_val, smc_data=None, entry_strategy=None, m_colors=None):
     """
-    綜合信號評分系統 v3.5 (波段交易優化版)
-    優先考慮中長期趨勢共振與量價結構，過濾短期雜訊
+    綜合信號評分系統 v4.0 (跨維度共識版)
+    整合 技術指標 (Technical), SMC 結構 (Institutional), 與 AI 策略 (Quant)
     """
     # 預設顏色方案 (Default colors if m_colors not provided)
     if m_colors is None:
@@ -352,35 +697,50 @@ def get_signal_score(data, rsi_val, macd_val, signal_val, supertrend_dir=None, m
     score_pts = 0
     current_price = float(data['Close'].iloc[-1])
     
-    # 1. 中長期趨勢共振 (Trend Resonance) - 權重高
+    # 1. 技術面：中長期趨勢共振 (Technical Trend) - 基礎分
     ema20 = float(data['Close'].ewm(span=20).mean().iloc[-1])
     ema50 = float(data['Close'].ewm(span=50).mean().iloc[-1])
     ema200 = float(data['Close'].ewm(span=200).mean().iloc[-1])
     
-    if ema20 > ema50 > ema200: score_pts += 2 # 多頭完美排列
+    if ema20 > ema50 > ema200: score_pts += 3 # 多頭完美排列
     elif current_price > ema50: score_pts += 1 # 站上關鍵生命線
     
-    # 2. SuperTrend (波段核心指標)
-    if supertrend_dir is not None and supertrend_dir == 1: score_pts += 1
-    
-    # 3. MACD 動能 (MACD Momentum)
+    # 2. 技術面：動能與強勢度 (Momentum)
     if macd_val > signal_val: score_pts += 1
-    
-    # 4. RSI 強勢區間 (RSI Strength)
-    # 波段交易看重強勢而非超賣
     if 50 < rsi_val < 75: score_pts += 1 
     elif rsi_val < 35: score_pts += 1 # 極端超跌機會
     
-    # 5. 量能增溫 (Volume Support)
+    # 3. 技術面：量能支援 (Volume)
     v_ma20 = data['Volume'].rolling(20).mean().iloc[-1]
     if data['Volume'].iloc[-1] > v_ma20 * 1.3:
         if data['Close'].iloc[-1] > data['Open'].iloc[-1]: score_pts += 1
         
-    # Mapping score to Rating
-    if score_pts >= 5: return "波段強勢", m_colors["buy"], 90
-    elif score_pts >= 3: return "趨勢偏多", m_colors["buy"], 75
+    # 4. SMC 結構修訂 (Institutional Correction) - 權重調整
+    if smc_data:
+        bias = smc_data.get('bias', '')
+        zone = smc_data.get('zone', '')
+        if "Bullish" in bias: score_pts += 2
+        elif "Bearish" in bias: score_pts -= 2
+        
+        if "折價區" in zone: score_pts += 1
+        elif "溢價區" in zone: score_pts -= 1
+        
+    # 5. AI 策略修訂 (Quant Correction) - 權重調整
+    if entry_strategy:
+        ai_action = entry_strategy.get('action', '')
+        ai_score = entry_strategy.get('score', 50)
+        
+        if "買入" in ai_action or "試探" in ai_action:
+            score_pts += (2 if ai_score > 70 else 1)
+        elif "觀望" in ai_action or "減碼" in ai_action:
+            score_pts -= (2 if ai_score > 70 else 1)
+
+    # Mapping score to Rating (擴展閾值以適應多維度評分)
+    if score_pts >= 7: return "核心看多 (共識)", m_colors["buy"], min(98, 80 + score_pts * 2)
+    elif score_pts >= 4: return "趨勢偏多", m_colors["buy"], 75
     elif score_pts >= 1: return "震盪整理", "#787b86", 55
-    elif score_pts <= -2: return "波段轉弱", m_colors["sell"], 20
+    elif score_pts <= -2: return "核心看空 (共識)", m_colors["sell"], 20
+    elif score_pts < 0: return "趨勢偏空", m_colors["sell"], 35
     return "趨勢不明", "#787b86", 45
 
 def analyze_news_sentiment(title, m_colors=None):
@@ -411,64 +771,89 @@ def analyze_news_sentiment(title, m_colors=None):
     else:
         return "中性", "#8B949E"
 
-def get_expert_insight(ticker, price, rsi, rating, macd_val, signal_val, buy_sigs, sell_sigs, current_date, supertrend_dir=None, m_colors=None):
+def get_expert_insight(ticker, price, rsi, rating, macd_val, signal_val, buy_sigs, sell_sigs, current_date, smc_data=None, entry_strategy=None, m_colors=None):
     """
-    生成專家診斷報告 (Generates Expert Technical Diagnosis Report) - 波段交易優化版
-    基於 RSI, MACD, SuperTrend 與 AI 評級提供綜合建議
+    生成專家診斷報告 (Generates Expert Technical Diagnosis Report) - 跨維度共識優化版
+    綜合 技術指標 (Technical), SMC 結構 (Institutional), 與 AI 策略 (Quant)
     """
-    # RSI 分析 (RSI Analysis)
+    # 1. 基礎分析 (Basic Analysis)
     rsi_status = "強勢區" if rsi > 60 else "超賣" if rsi < 30 else "中性"
     rsi_color = "#26a69a" if rsi > 60 else "#26a69a" if rsi < 30 else "#8B949E"
     rsi_desc = "RSI 進入 60 以上強勢區，波段動能正在釋放。" if rsi > 60 else "股價進入超賣區，可能存在波段築底機會。" if rsi < 30 else "RSI 處於中性區間，適合波段佈局。"
     
-    # MACD 分析 (MACD Analysis)
     macd_diff = macd_val - signal_val
     macd_status = "趨勢確認" if macd_diff > 0 else "趨勢轉弱"
     macd_color = "#26a69a" if macd_diff > 0 else "#ef5350"
     macd_desc = "MACD 柱狀體翻紅，波段多頭趨勢獲得確認。" if macd_diff > 0 else "MACD 動能放緩，波段可能進入整理期。"
     
-    # --- NEW: SuperTrend Analysis ---
-    st_status = "波段看多" if supertrend_dir == 1 else "波段看空" if supertrend_dir == -1 else "中性"
-    st_color = "#26a69a" if supertrend_dir == 1 else "#ef5350" if supertrend_dir == -1 else "#8B949E"
-    st_desc = "SuperTrend 通道向上，波段操作者建議持股續抱。" if supertrend_dir == 1 else "SuperTrend 轉向，波段趨勢有反轉風險。" if supertrend_dir == -1 else "趨勢尚不明確。"
-
-    # 策略建議 (Action Advice Based on Rating)
-    action = "波段進場" if "波段強勢" in rating else "趨勢偏多" if "趨勢偏多" in rating else "減碼觀望" if "波段轉弱" in rating else "中性佈局"
-    action_color = "#26a69a" if "趨勢" in action or "波段" in action else "#ef5350" if "轉弱" in action else "#58A6FF"
+    # 2. 跨維度共識檢查 (Cross-Dimension Consensus Check)
+    # 技術面多頭判定
+    tech_bullish = "波段強勢" in rating or "趨勢偏多" in rating
+    # SMC 結構多頭判定
+    smc_bullish = smc_data and ("Bullish" in smc_data.get('bias', '') or "折價區" in smc_data.get('zone', ''))
+    smc_bearish = smc_data and ("Bearish" in smc_data.get('bias', '') or "溢價區" in smc_data.get('zone', ''))
+    # AI 策略多頭判定
+    ai_bullish = entry_strategy and ("買入" in entry_strategy.get('action', '') or "試探" in entry_strategy.get('action', ''))
     
-    # 即時信號檢查 (Real-time Signal Check)
-    latest_signal = "目前多指標共振，波段結構穩定。"
-    if supertrend_dir == 1:
-        latest_signal = "🔥 波段共振：趨勢通道看多，波段發動中！"
-    elif supertrend_dir == -1:
-        latest_signal = "⚠️ 波段轉弱：趨勢跌破支撐，建議執行移動停損。"
+    # 判斷是否存在矛盾 (Divergence Analysis)
+    has_conflict = False
+    conflict_desc = ""
+    
+    if tech_bullish and smc_bearish:
+        has_conflict = True
+        conflict_desc = "⚠️ 警告：技術指標偏多，但 SMC 顯示已進入溢價區，追高風險大，不建議在此買入。"
+    elif not tech_bullish and smc_bullish:
+        has_conflict = True
+        conflict_desc = "⚠️ 提示：技術指標尚在整理，但價格已進入機構折價區，適合分批佈局底倉。"
+    elif tech_bullish and not ai_bullish and entry_strategy and entry_strategy.get('score', 0) < 40:
+        has_conflict = True
+        conflict_desc = "⚠️ 注意：趨勢雖強但量化得分偏低，可能缺乏動能支持，建議減量參與。"
 
-    # 檢查今日是否觸發買賣信號 (Check if today triggers signals)
+    # 3. 最終建議生成 (Final Consolidated Action)
+    if has_conflict:
+        action_status = "多空分歧"
+        action_color = "#D29922"
+        action_desc = conflict_desc
+    else:
+        # 達成共識
+        if tech_bullish and (smc_bullish or not smc_data):
+            action_status = "共振看多"
+            action_color = "#26a69a"
+            action_desc = "技術面與結構面達成看多共振，具備較高操作勝率。"
+        elif not tech_bullish and smc_bearish:
+            action_status = "空頭佔優"
+            action_color = "#ef5350"
+            action_desc = "技術指標走弱且處於溢價區，建議執行防禦性撤退。"
+        else:
+            action_status = "中性整理"
+            action_color = "#58A6FF"
+            action_desc = "目前各維度信號方向不一，建議保持輕倉並等待結構突破。"
+
+    # 4. 即時信號覆蓋 (Signal Overrides)
     if current_date in buy_sigs:
-        latest_signal = "🚀 今日觸發【波段買點】，技術面全面轉強！"
-        action = "波段進場"
+        action_status = "🚀 波段買點"
+        action_desc = "今日觸發關鍵【波段買入】訊號，結構全面轉強，建議進場。"
         action_color = "#26a69a"
     elif current_date in sell_sigs:
-        latest_signal = "🔻 今日觸發【波段賣點】，建議獲利了結或停損。"
-        action = "獲利減碼"
+        action_status = "🔻 波段賣點"
+        action_desc = "今日觸發關鍵【波段賣出】訊號，趨勢出現反轉跡象，建議撤退。"
         action_color = "#ef5350"
-    
-    # 波段具體建議 (Swing Specific Advice)
-    swing_advice = "建議觀察 EMA50 支撐，若不跌破則波段持有。"
-    if supertrend_dir == 1:
-        swing_advice = "多頭波段中，建議以 SuperTrend 線作為移動停利點。"
-    elif rsi > 70:
-        swing_advice = "短線過熱，波段持有者可部分獲利了結，等回測再加碼。"
-    elif rsi < 30:
-        swing_advice = "進入超賣區，波段可開始分批佈局底倉。"
+
+    # 5. 波段具體建議 (Swing Specific Advice)
+    if rsi > 75:
+        swing_advice = "短線指標極度超漲，波段持有者建議在此減碼 1/2，落袋為安。"
+    elif rsi < 25:
+        swing_advice = "短線指標極度超跌，具備強勁反彈潛力，可在此建立波段首筆倉位。"
+    else:
+        swing_advice = "建議守住 EMA50 關鍵水位，只要結構不破，波段趨勢即未結束。"
 
     return {
         "rsi": {"val": f"{rsi:.1f}", "status": rsi_status, "color": rsi_color, "desc": rsi_desc},
         "macd": {"val": f"{macd_diff:+.2f}", "status": macd_status, "color": macd_color, "desc": macd_desc},
-        "supertrend": {"status": st_status, "color": st_color, "desc": st_desc},
-        "action": {"status": action, "color": action_color, "desc": latest_signal},
+        "action": {"status": action_status, "color": action_color, "desc": action_desc},
         "swing_advice": swing_advice
     }
+
 
 def create_tv_gauge(score_val, label, color, m_colors=None):
     """Creates a TradingView-style gauge chart."""
@@ -515,6 +900,7 @@ def create_tv_gauge(score_val, label, color, m_colors=None):
         font={'color': "#d1d4dc", 'family': "Inter, sans-serif"},
         height=220,
         margin=dict(l=20, r=20, t=40, b=20),
+        dragmode=False,
         transition={'duration': 1000, 'easing': 'elastic-in-out'}
     )
     return fig
@@ -620,7 +1006,7 @@ def optimize_ai_weights(data, rsi_series, ema20, ema50, bb_lower, bb_upper, vr_s
             
     return best_weights, max_score
 
-def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, health_scores, vr, atr, supertrend_dir=None, dynamic_weights=None, m_colors=None, is_discount=False, has_fvg=False, is_squeeze=False, is_unicorn=False):
+def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, health_scores, vr, atr, dynamic_weights=None, m_colors=None, is_discount=False, has_fvg=False, is_squeeze=False, is_unicorn=False):
     """
     Generates AI-driven entry strategy (Swing Trading Optimized v3.6 - SMC Integrated)
     """
@@ -643,9 +1029,8 @@ def get_ai_entry_strategy(data, rsi, ema20, ema50, bb_lower, health_scores, vr, 
     # 1. Technical Score (0-100)
     t_raw = 0
     ema200 = float(data['Close'].ewm(span=200).mean().iloc[-1])
-    if current_price > ema50 > ema200: t_raw += 40 
-    if 40 < rsi < 65: t_raw += 25
-    if supertrend_dir == 1: t_raw += 35
+    if current_price > ema50 > ema200: t_raw += 60 
+    if 40 < rsi < 65: t_raw += 40
     
     # 2. Fundamental Score (0-100)
     f_raw = (p_score + l_score + c_score + g_score + q_score) * 2 # 轉為百分制
@@ -789,7 +1174,7 @@ def get_institutional_strategy(data, i, health_scores=None, ema_data=None, vol_m
         
     return strategies
 
-def get_ai_exit_strategy(data, rsi, bb_upper, target_median, atr, health_scores=None, supertrend_dir=None, m_colors=None):
+def get_ai_exit_strategy(data, rsi, bb_upper, target_median, atr, health_scores=None, m_colors=None):
     """
     Generates AI-driven exit strategy (Dynamic Profit Taking v3.5)
     """
@@ -801,11 +1186,10 @@ def get_ai_exit_strategy(data, rsi, bb_upper, target_median, atr, health_scores=
     
     # 1. 退出壓力評分 (Exit Pressure Score)
     exit_score = 0
-    if rsi > 80: exit_score += 45
-    elif rsi > 70: exit_score += 25
+    if rsi > 80: exit_score += 55
+    elif rsi > 70: exit_score += 35
     
     if current_price > bb_upper: exit_score += 25
-    if supertrend_dir == -1: exit_score += 20
     
     # 均線背離或破位
     ema20 = data['Close'].ewm(span=20).mean().iloc[-1]
@@ -848,7 +1232,7 @@ def get_ai_exit_strategy(data, rsi, bb_upper, target_median, atr, health_scores=
         "score": exit_score
     }
 
-def calculate_quant_factors(data, ticker_metadata, rsi_series, atr_series, supertrend_dir=None, financial_data=None):
+def calculate_quant_factors(data, ticker_metadata, rsi_series, atr_series, financial_data=None):
     """
     量化多因子評分系統 v3.0 (Quant Multi-Factor Scoring System)
     優化因子權重與計算邏輯，新增波動率調節與趨勢共振因子
@@ -868,18 +1252,11 @@ def calculate_quant_factors(data, ticker_metadata, rsi_series, atr_series, super
     elif close_prices.iloc[-1] > ema20.iloc[-1] > ema50.iloc[-1]:
         trend_score = 85
     elif close_prices.iloc[-1] > ema50.iloc[-1]:
-        trend_score = 65
+        trend_score = 70 # 原為 65，微調以補償 SuperTrend
     elif close_prices.iloc[-1] > ema200.iloc[-1]:
-        trend_score = 50
+        trend_score = 55 # 原為 50
     else:
         trend_score = 30
-    
-    # 結合 SuperTrend 方向調節
-    if supertrend_dir is not None:
-        if supertrend_dir == 1:
-            trend_score = min(100, trend_score + 15)
-        else:
-            trend_score = max(0, trend_score - 15)
     
     factors['趨勢 (Trend)'] = trend_score
     
@@ -955,17 +1332,173 @@ def calculate_quant_factors(data, ticker_metadata, rsi_series, atr_series, super
     return factors
 
 @st.cache_data(ttl=3600)
+def analyze_smc(data):
+    """
+    Smart Money Concepts (SMC) 分析核心
+    計算 BOS, CHoCH, OB, FVG 與市場偏向 (Daily Bias)
+    """
+    if data is None or len(data) < 30:
+        return None
+
+    df = data.copy()
+    
+    # 1. 識別分型 (Fractals / Swing Highs & Lows)
+    df['SwingHigh'] = (df['High'] > df['High'].shift(1)) & (df['High'] > df['High'].shift(2)) & \
+                      (df['High'] > df['High'].shift(-1)) & (df['High'] > df['High'].shift(-2))
+    df['SwingLow'] = (df['Low'] < df['Low'].shift(1)) & (df['Low'] < df['Low'].shift(2)) & \
+                     (df['Low'] < df['Low'].shift(-1)) & (df['Low'] < df['Low'].shift(-2))
+
+    # 2. 市場結構 (BOS & CHoCH)
+    bos_events = []
+    choch_events = []
+    
+    last_high_idx = None
+    last_low_idx = None
+    
+    # 掃描歷史結構
+    for i in range(5, len(df)):
+        # 尋找最近的 Swing High/Low
+        highs = df.iloc[:i][df.iloc[:i]['SwingHigh']]
+        lows = df.iloc[:i][df.iloc[:i]['SwingLow']]
+        
+        if not highs.empty:
+            l_high = highs['High'].iloc[-1]
+            if df['Close'].iloc[i] > l_high:
+                # 判斷是 BOS 還是 CHoCH (簡單邏輯：如果之前趨勢相反則是 CHoCH)
+                if len(bos_events) > 0 and bos_events[-1]['type'] == 'Bearish BOS':
+                    choch_events.append({'date': df.index[i], 'price': l_high, 'type': 'Bullish CHoCH'})
+                else:
+                    bos_events.append({'date': df.index[i], 'price': l_high, 'type': 'Bullish BOS'})
+        
+        if not lows.empty:
+            l_low = lows['Low'].iloc[-1]
+            if df['Close'].iloc[i] < l_low:
+                if len(bos_events) > 0 and bos_events[-1]['type'] == 'Bullish BOS':
+                    choch_events.append({'date': df.index[i], 'price': l_low, 'type': 'Bearish CHoCH'})
+                else:
+                    bos_events.append({'date': df.index[i], 'price': l_low, 'type': 'Bearish BOS'})
+
+    # 3. 溢價/折價區間 (Premium/Discount)
+    lookback = 40
+    range_high = df['High'].rolling(window=lookback).max().iloc[-1]
+    range_low = df['Low'].rolling(window=lookback).min().iloc[-1]
+    equilibrium = (range_high + range_low) / 2
+    
+    current_close = df['Close'].iloc[-1]
+    zone = "均衡區 (Equilibrium)"
+    if current_close < equilibrium:
+        zone = "折價區 (Discount - 買入區)"
+    elif current_close > equilibrium:
+        zone = "溢價區 (Premium - 賣出區)"
+    
+    # 4. 訂單塊 (Order Blocks)
+    all_obs = []
+    # 掃描過去 100 根 K 線尋找 OB
+    for i in range(len(df)-100, len(df)-2):
+        if i < 0: continue
+        # Bullish OB
+        if df['Close'].iloc[i] < df['Open'].iloc[i] and df['Close'].iloc[i+1] > df['High'].iloc[i]:
+            all_obs.append({'type': 'Bullish OB', 'top': df['High'].iloc[i], 'bottom': df['Low'].iloc[i], 'start': df.index[i], 'end': df.index[-1]})
+        # Bearish OB
+        if df['Close'].iloc[i] > df['Open'].iloc[i] and df['Close'].iloc[i+1] < df['Low'].iloc[i]:
+            all_obs.append({'type': 'Bearish OB', 'top': df['High'].iloc[i], 'bottom': df['Low'].iloc[i], 'start': df.index[i], 'end': df.index[-1]})
+
+    # 5. 公允價值缺口 (FVG)
+    all_fvgs = []
+    for i in range(len(df)-60, len(df)-1):
+        if i < 2: continue
+        if df['Low'].iloc[i] > df['High'].iloc[i-2]:
+            all_fvgs.append({'type': 'Bullish FVG', 'top': df['Low'].iloc[i], 'bottom': df['High'].iloc[i-2], 'start': df.index[i-1], 'end': df.index[-1]})
+        elif df['High'].iloc[i] < df['Low'].iloc[i-2]:
+            all_fvgs.append({'type': 'Bearish FVG', 'top': df['Low'].iloc[i-2], 'bottom': df['High'].iloc[i], 'start': df.index[i-1], 'end': df.index[-1]})
+
+    # 6. 當前狀態
+    structure = "中性 (Neutral)"
+    if bos_events:
+        structure = bos_events[-1]['type']
+    if choch_events:
+        structure = choch_events[-1]['type']
+
+    bias = "中性"
+    if "Bullish" in structure:
+        bias = "看多 (Bullish)"
+    elif "Bearish" in structure:
+        bias = "看空 (Bearish)"
+
+    # 獲取最新的看多與看空 OB
+    bull_obs = [o for o in all_obs if o['type'] == 'Bullish OB']
+    bear_obs = [o for o in all_obs if o['type'] == 'Bearish OB']
+
+    return {
+        "structure": structure,
+        "bias": bias,
+        "zone": zone,
+        "equilibrium": equilibrium,
+        "range": (range_low, range_high),
+        "bos_events": bos_events[-5:], # 傳回最近 5 個
+        "choch_events": choch_events[-5:],
+        "obs": all_obs[-3:], # 傳回最近 3 個
+        "fvgs": all_fvgs[-3:],
+        "bull_ob": (bull_obs[-1]['bottom'], bull_obs[-1]['top']) if bull_obs else None,
+        "bear_ob": (bear_obs[-1]['bottom'], bear_obs[-1]['top']) if bear_obs else None,
+        "fvgs_list": all_fvgs[-3:],
+        "price": current_close
+    }
+
+@st.cache_data(ttl=86400) # 24 小時更新一次
+def get_yahoo_hot_tickers():
+    """
+    從 Yahoo Finance 獲取每日熱門趨勢標的與強勢族群
+    """
+    hot_tickers = []
+    
+    # 1. 獲取 Yahoo Trending (TW)
+    try:
+        url = "https://query1.finance.yahoo.com/v1/finance/trending/TW"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            quotes = data.get('finance', {}).get('result', [{}])[0].get('quotes', [])
+            for q in quotes:
+                symbol = q.get('symbol')
+                if symbol:
+                    hot_tickers.append(symbol)
+    except:
+        pass
+
+    # 2. 加入預定義的強勢產業領頭羊 (做為備選與擴充)
+    sectors = {
+        "AI/Server": ["2330.TW", "2317.TW", "2382.TW", "3231.TW", "6669.TW", "2376.TW", "3017.TW", "3661.TW"],
+        "Semiconductor": ["2454.TW", "2303.TW", "3711.TW", "2379.TW", "3034.TW", "2337.TW", "6770.TW"],
+        "Shipping": ["2603.TW", "2609.TW", "2615.TW", "2605.TW"],
+        "Energy/EV": ["1513.TW", "1519.TW", "1503.TW", "1605.TW", "1608.TW"]
+    }
+    
+    # 隨機選取部分產業龍頭加入掃描，增加多樣性
+    import random
+    for sector, symbols in sectors.items():
+        hot_tickers.extend(random.sample(symbols, min(len(symbols), 3)))
+        
+    # 去重並過濾
+    final_list = list(dict.fromkeys(hot_tickers))
+    return ", ".join(final_list[:25]) # 最多回傳 25 檔
+
 def run_sniper_scan(ticker_list):
     """
     股市狙擊手掃描 (Stock Sniper Scan)
     掃描多檔股票以尋找高勝率進場機會 (Unicorn, Squeeze, Breakouts)
     """
     results = []
+    failed_tickers = []
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    # 預處理 ticker 列表，過濾重複與空值
-    unique_tickers = list(dict.fromkeys([t.strip().upper() for t in ticker_list if t.strip()]))
+    # 預處理 ticker 列表，過濾重複、空值與雜訊
+    noise = ['TW', 'TWO', 'T', 'O', 'STOCK']
+    unique_tickers = [t.strip().upper() for t in ticker_list if t.strip()]
+    unique_tickers = [t for t in unique_tickers if t not in noise]
+    unique_tickers = list(dict.fromkeys(unique_tickers))
     
     for i, ticker in enumerate(unique_tickers):
         status_text.text(f"正在狙擊: {ticker} ({i+1}/{len(unique_tickers)})")
@@ -975,6 +1508,7 @@ def run_sniper_scan(ticker_list):
             # 獲取 60 天數據進行分析
             data, resolved = get_stock_data(ticker, period="60d", interval="1d")
             if data is None or len(data) < 30:
+                failed_tickers.append(ticker)
                 continue
                 
             # 1. 基礎數據
@@ -982,32 +1516,43 @@ def run_sniper_scan(ticker_list):
             prev_price = float(data['Close'].iloc[-2])
             change_pct = (current_price / prev_price - 1) * 100
             
-            # 2. SMC 邏輯
-            lookback_smc = 20
-            recent_high = data['High'].rolling(window=lookback_smc).max()
-            recent_low = data['Low'].rolling(window=lookback_smc).min()
-            equilibrium = (recent_high + recent_low) / 2
-            is_discount = current_price < equilibrium.iloc[-1]
+            # 2. SMC 邏輯 (Enhanced with analyze_smc)
+            smc_info = analyze_smc(data)
+            has_smc = smc_info is not None
             
-            # FVG
-            bull_fvg = (data['Low'].shift(-1) > data['High'].shift(1)) & (data['Close'] > data['Open'])
-            
-            # OB
+            # Unicorn 邏輯整合
             bull_ob_price = 0
-            for j in range(len(data)-20, len(data)-1):
-                if data['Close'].iloc[j+1] > data['High'].iloc[j] and (data['Close'].iloc[min(j+3, len(data)-1)]) > data['Close'].iloc[j] * 1.03:
-                    if data['Close'].iloc[j] < data['Open'].iloc[j]:
-                        bull_ob_price = data['Low'].iloc[j]
+            if has_smc and smc_info['bull_ob']:
+                bull_ob_price = smc_info['bull_ob'][0]
             
-            has_unicorn = (data['Low'].iloc[-1] <= bull_ob_price) and (bull_fvg.iloc[-5:].any()) if bull_ob_price > 0 else False
+            # 檢查 FVG 是否存在於最近 5 根 K 線
+            has_recent_fvg = False
+            if has_smc:
+                has_recent_fvg = any(f[0] == "Bullish" for f in smc_info['fvgs'])
             
-            # 3. Squeeze
+            # Unicorn Setup: Price in OB + Recent FVG
+            has_unicorn = (data['Low'].iloc[-1] <= bull_ob_price * 1.01) and has_recent_fvg if bull_ob_price > 0 else False
+            
+            # 3. Squeeze & Volume
             ma20 = data['Close'].rolling(window=20).mean()
+            ma5 = data['Close'].rolling(window=5).mean()
+            ma60 = data['Close'].rolling(window=60).mean()
             std20 = data['Close'].rolling(window=20).std()
             bb_upper = ma20 + (2 * std20)
             bb_lower = ma20 - (2 * std20)
             bb_width = (bb_upper - bb_lower) / ma20
+            
+            # Squeeze logic
             is_squeeze = bb_width.iloc[-1] < bb_width.rolling(window=100).quantile(0.2).iloc[-1]
+            # Squeeze Breakout: Price breaks above BB upper while squeeze is ending or just ended
+            is_squeeze_breakout = (current_price > bb_upper.iloc[-1]) and (bb_width.iloc[-1] > bb_width.iloc[-2]) and (bb_width.iloc[-2] < bb_width.rolling(window=100).quantile(0.2).iloc[-2])
+
+            # Volume Spike
+            avg_vol = data['Volume'].rolling(window=20).mean()
+            vol_spike = data['Volume'].iloc[-1] > avg_vol.iloc[-1] * 2
+
+            # MA Alignment (多頭排列)
+            ma_alignment = ma5.iloc[-1] > ma20.iloc[-1] > ma60.iloc[-1] if not ma60.isnull().all() else False
             
             # 4. 指標
             delta = data['Close'].diff()
@@ -1019,21 +1564,47 @@ def run_sniper_scan(ticker_list):
             # 5. 評分與標籤
             tags = []
             score = 0
+            
+            # SMC Tags
+            if has_smc:
+                if smc_info['bias'] == "Bullish":
+                    tags.append("🐂 Bias:Bull")
+                    score += 15
+                if "CHoCH" in smc_info['structure']:
+                    tags.append("⚡ CHoCH")
+                    score += 20
+                if "BOS" in smc_info['structure']:
+                    tags.append("🔗 BOS")
+                    score += 10
+                if smc_info['zone'].startswith("Discount"):
+                    tags.append("💎 Discount")
+                    score += 15
+                if has_recent_fvg:
+                    tags.append("🚀 GAP")
+                    score += 10
+
             if has_unicorn: 
                 tags.append("🦄 Unicorn")
-                score += 40
+                score += 30 # OB + FVG confluence
             if is_squeeze: 
                 tags.append("🌀 Squeeze")
                 score += 20
-            if is_discount: 
-                tags.append("💎 Discount")
-                score += 10
+            if is_squeeze_breakout:
+                tags.append("💥 SqzBreak")
+                score += 30
+            if vol_spike:
+                tags.append("📊 VolSpike")
+                score += 25
+            if ma_alignment:
+                tags.append("📈 BullTrend")
+                score += 15
             if change_pct > 3: 
                 tags.append("🚀 Breakout")
-                score += 15
+                score += 10
             if 30 < rsi < 45: 
-                tags.append("📈 Reversal?")
+                tags.append("📉 Reversal?")
                 score += 15
+
             
             results.append({
                 "代碼": resolved,
@@ -1052,28 +1623,205 @@ def run_sniper_scan(ticker_list):
     
     df_results = pd.DataFrame(results)
     if not df_results.empty:
-        return df_results.sort_values(by="狙擊分數", ascending=False)
-    return df_results
+        return df_results.sort_values(by="狙擊分數", ascending=False), failed_tickers
+    return df_results, failed_tickers
 
 # Sidebar settings
 with st.sidebar:
     st.markdown(f'<h2 style="font-size: 1.2rem; color: #FFFFFF; margin-bottom: 20px;">{t["settings"]}</h2>', unsafe_allow_html=True)
     
     # Actual Ticker Input
-    ticker_val = st.session_state.get('ticker_input', "2330.TW")
     ticker_input = st.text_input(
         t["ticker_label"], 
-        value=ticker_val, 
         key="main_ticker_input", 
         help="台股請加後綴，例如：2330.TW (上市) 或 8069.TWO (上櫃)；美股直接輸入代碼，例如：AAPL"
     )
-    if ticker_input != ticker_val:
+    if ticker_input != st.session_state.ticker_input:
         st.session_state.ticker_input = ticker_input
         st.rerun()
 
     st.markdown("---")
     period = st.selectbox(t["period_label"], options=["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=3)
     interval = st.selectbox(t["interval_label"], options=["1d", "1wk", "1mo"], index=0)
+
+    st.markdown("---")
+    # 股市狙擊手按鈕 (Stock Sniper Button)
+    if st.button("🎯 股市狙擊手", use_container_width=True, key="side_sniper_btn"):
+        st.session_state.active_page = "sniper"
+        st.rerun()
+    
+    # 如果在狙擊手頁面，顯示返回按鈕
+    if st.session_state.get('active_page') == "sniper":
+        if st.button("🔙 返回技術分析", use_container_width=True, key="side_back_btn"):
+            st.session_state.active_page = "main"
+            st.rerun()
+
+# Header Section
+# 頁面路由：如果 active_page 為 sniper，顯示狙擊手內容
+if st.session_state.get('active_page') == "sniper":
+    st.markdown(f'''<div class="data-card" style="border-left: 4px solid #D29922; background: rgba(210, 153, 34, 0.05); margin-bottom: 24px;">
+    <h3 style="margin: 0; color: #D29922;">🎯 股市狙擊手 (Stock Sniper)</h3>
+    <p style="font-size: 0.85rem; color: #8B949E; margin-top: 8px;">
+        學習自 StockSniper 與 DailyDip 概念，自動掃描市場中的高勝率機會。<br>
+        檢測項目：<b>Unicorn (OB+FVG)</b>、<b>Squeeze (動能擠壓)</b>、<b>Breakout (帶量突破)</b>。
+    </p>
+    </div>''', unsafe_allow_html=True)
+    
+    # 狙擊清單設定
+    col_list, col_presets = st.columns([2, 1])
+    
+    with col_presets:
+        preset = st.selectbox("🎯 快速選擇狙擊清單", options=[
+            "自定義清單", 
+            "🔥 Yahoo 每日熱門趨勢",
+            "台灣 50 指數 (0050)", 
+            "AI 概念股精選", 
+            "半導體供應鏈", 
+            "高股息熱門股"
+        ], key="sniper_preset_select")
+        
+        presets = {
+            "🔥 Yahoo 每日熱門趨勢": "DYNAMIC", # 標記為動態獲取
+            "台灣 50 指數 (0050)": "2330.TW, 2317.TW, 2454.TW, 2308.TW, 2303.TW, 2382.TW, 3231.TW, 2412.TW, 2881.TW, 2882.TW, 3008.TW, 2603.TW, 2357.TW, 3711.TW, 2408.TW, 2379.TW, 1301.TW, 1303.TW, 2886.TW, 2891.TW",
+            "AI 概念股精選": "2330.TW, 2317.TW, 2382.TW, 3231.TW, 6669.TW, 2376.TW, 2454.TW, 3017.TW, 3661.TW, 3443.TW, 2059.TW, 8210.TW",
+            "半導體供應鏈": "2330.TW, 2454.TW, 2379.TW, 3034.TW, 2337.TW, 3711.TW, 6770.TW, 3532.TW, 6182.TWO, 8069.TWO",
+            "高股息熱門股": "2317.TW, 2412.TW, 2881.TW, 2882.TW, 2886.TW, 2891.TW, 2892.TW, 2885.TW, 1101.TW, 2105.TW"
+        }
+        
+        # 如果選擇了預設清單，直接更新 text_area 的 state
+        if preset != "自定義清單":
+            if presets[preset] == "DYNAMIC":
+                with st.spinner("正在從 Yahoo Finance 抓取每日熱門標的..."):
+                    st.session_state.sniper_input_area = get_yahoo_hot_tickers()
+            else:
+                st.session_state.sniper_input_area = presets[preset]
+    
+    with col_list:
+        default_sniper_list = "2330.TW, 2317.TW, 2454.TW, 2308.TW, 2303.TW, 2382.TW, 3231.TW, 2412.TW, 2881.TW, 2882.TW, 3008.TW, 2603.TW, 1513.TW, 1519.TW, 2376.TW"
+        # 確保 sniper_input_area 在 session_state 中初始化
+        if 'sniper_input_area' not in st.session_state:
+            st.session_state.sniper_input_area = default_sniper_list
+        
+        sniper_input = st.text_area("狙擊掃描清單 (逗號分隔)", height=100, key="sniper_input_area")
+    
+    col_scan, col_clear, col_spacer = st.columns([1, 1, 3])
+    with col_scan:
+        start_scan = st.button("🚀 開始狙擊掃描", type="primary", use_container_width=True)
+    with col_clear:
+        if st.button("🗑️ 清空列表", use_container_width=True):
+            st.session_state.sniper_input_area = ""
+            st.rerun()
+    
+    if start_scan:
+        # 使用正則表達式拆分：支援逗號、空格、換行
+        import re
+        raw_list = re.split(r'[,\s\n]+', sniper_input.strip())
+        ticker_list = [t.strip().upper() for t in raw_list if t.strip()]
+        
+        if not ticker_list:
+            st.error("請輸入至少一個股票代碼。")
+        else:
+            scan_results, failed_list = run_sniper_scan(ticker_list)
+            st.session_state.scan_results = scan_results
+            st.session_state.failed_scan_list = failed_list
+            st.session_state.has_scanned = True
+    
+    if st.session_state.get('has_scanned', False) and 'scan_results' in st.session_state:
+        scan_results = st.session_state.scan_results
+        failed_list = st.session_state.get('failed_scan_list', [])
+        
+        if failed_list:
+            with st.expander(f"⚠️ 無法獲取數據的標的 ({len(failed_list)})"):
+                st.write(", ".join(failed_list))
+                st.info("請檢查代碼格式是否正確（台股需加 .TW 或 .TWO）或該股票是否已下市。")
+
+        if not scan_results.empty:
+            st.markdown("### 🔍 狙擊掃描結果")
+            
+            # Summary Metrics
+            m1, m2, m3, m4 = st.columns(4)
+            with m1:
+                st.metric("總掃描標的", len(scan_results))
+            with m2:
+                high_score_count = len(scan_results[scan_results['狙擊分數'] >= 60])
+                st.metric("強烈訊號 (>=60)", high_score_count)
+            with m3:
+                avg_score = scan_results['狙擊分數'].mean()
+                st.metric("平均狙擊分數", f"{avg_score:.1f}")
+            with m4:
+                best_ticker = scan_results.iloc[0]['代碼']
+                st.metric("本日最優選", best_ticker)
+
+            def color_score(val):
+                color = "#ef5350" if val < 30 else "#D29922" if val < 60 else "#26a69a"
+                return f'color: {color}; font-weight: bold; background: {color}10'
+
+            st.dataframe(
+                scan_results.style.map(color_score, subset=['狙擊分數']),
+                use_container_width=True,
+                height=500
+            )
+            
+            # Top picks with more detail
+            st.markdown("#### 🎯 核心狙擊推薦")
+            top_picks = scan_results.head(3)
+            cols = st.columns(len(top_picks))
+            for idx, (i, row) in enumerate(top_picks.iterrows()):
+                with cols[idx]:
+                    st.markdown(f'''
+                    <div style="padding: 20px; background: rgba(88, 166, 255, 0.05); border: 1px solid rgba(88, 166, 255, 0.2); border-radius: 12px; text-align: center;">
+                        <div style="font-size: 0.8rem; color: #8B949E; margin-bottom: 5px;">TOP {idx+1}</div>
+                        <div style="font-size: 1.5rem; font-weight: 800; color: #58A6FF;">{row['代碼']}</div>
+                        <div style="font-size: 1.2rem; font-weight: 700; color: #D29922; margin: 10px 0;">得分: {row['狙擊分數']}</div>
+                        <div style="font-size: 0.8rem; color: #E0E0E0;">{row['訊號標籤']}</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                    if st.button(f"查看 {row['代碼']} 詳情", key=f"detail_{row['代碼']}"):
+                        st.session_state.pending_ticker_update = row['代碼']
+                        st.session_state.active_page = "main"
+                        st.rerun()
+
+            csv = scan_results.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(label="📥 下載完整狙擊報表 (CSV)", data=csv, file_name=f"sniper_report_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv", use_container_width=True)
+        else:
+            st.warning("目前掃描範圍內無明顯狙擊信號，請更換掃描清單。")
+    
+    with st.expander("📖 了解狙擊策略 (Strategy Details)"):
+        st.markdown("""
+        ### 🎯 核心狙擊邏輯說明
+        本系統整合了 **Smart Money Concepts (SMC)** 與傳統量化指標，旨在捕捉市場中的「機構足跡」與「動能爆發」。
+        
+        #### 1. 🦄 Unicorn (OB + FVG) - 權重: 40
+        - **原理**：尋找價格回測「訂單塊 (Order Block)」且伴隨「公允價值缺口 (FVG)」的現象。這通常是機構投資者進場留下的痕跡。
+        - **條件**：當前價格觸及 OB 區間，且近期出現過強勢突破缺口。
+        
+        #### 2. 💥 Squeeze Breakout - 權重: 30
+        - **原理**：當布林通道極度擠壓後（波動率極低），價格帶量向上突破通道上軌。
+        - **條件**：BB Width 處於歷史低位後開始擴張，且價格 > BB Upper。
+        
+        #### 3. 📊 Volume Spike - 權重: 25
+        - **原理**：成交量是價格的先行指標。異常放量通常代表大戶進場或趨勢反轉。
+        - **條件**：當日成交量 > 20日平均成交量 2 倍。
+        
+        #### 4. 📈 Bullish MA Alignment - 權重: 15
+        - **原理**：短、中、長期均線呈多頭排列，代表趨勢強勁。
+        - **條件**：MA5 > MA20 > MA60。
+        
+        #### 5. 🌀 Squeeze (動能擠壓) - 權重: 20
+        - **原理**：波動率收斂中，代表即將發生大行情。
+        - **條件**：BB Width < 過去 100 天的 20% 分位數。
+        """)
+    
+    # Footer
+    st.markdown("---")
+    st.markdown(
+        '<div style="text-align: center; color: #8B949E; font-size: 0.7rem; padding: 20px;">'
+        'INSTITUTIONAL TERMINAL v2.0 | REAL-TIME DATA VIA YAHOO FINANCE<br>'
+        '© 2026 Financial Analytics Group. All rights reserved. For professional use only.'
+        '</div>', 
+        unsafe_allow_html=True
+    )
+    st.stop() # 停止執行後續的 UI 渲染 (Header, Metrics, etc.)
 
 # Header Section
 col_title, col_status = st.columns([3, 2])
@@ -1266,42 +2014,6 @@ MARKET_CONNECTED
         has_unicorn_buy = (data['Low'] <= bull_ob) & (bull_fvg.rolling(window=5).sum() > 0)
         has_unicorn_sell = (data['High'] >= bear_ob) & (bear_fvg.rolling(window=5).sum() > 0)
 
-        # --- NEW: SuperTrend Indicator ---
-        def calculate_supertrend(df, atr_s, multiplier=3):
-            try:
-                hl2 = (df['High'] + df['Low']) / 2
-                upperband = hl2 + (multiplier * atr_s)
-                lowerband = hl2 - (multiplier * atr_s)
-                
-                supertrend = pd.Series(index=df.index, dtype=float)
-                direction = pd.Series(index=df.index, dtype=int) # 1 for up, -1 for down
-                
-                # Initialize
-                supertrend.iloc[0] = upperband.iloc[0]
-                direction.iloc[0] = -1
-                
-                for i in range(1, len(df)):
-                    if direction.iloc[i-1] == 1: # Previous trend was up
-                        if df['Close'].iloc[i] < lowerband.iloc[i-1]:
-                            direction.iloc[i] = -1
-                            supertrend.iloc[i] = upperband.iloc[i]
-                        else:
-                            direction.iloc[i] = 1
-                            supertrend.iloc[i] = max(lowerband.iloc[i], lowerband.iloc[i-1])
-                    else: # Previous trend was down
-                        if df['Close'].iloc[i] > upperband.iloc[i-1]:
-                            direction.iloc[i] = 1
-                            supertrend.iloc[i] = lowerband.iloc[i]
-                        else:
-                            direction.iloc[i] = -1
-                            supertrend.iloc[i] = min(upperband.iloc[i], upperband.iloc[i-1])
-                return supertrend, direction
-            except Exception as e:
-                st.error(f"SuperTrend 計算出錯: {e}")
-                return pd.Series(0, index=df.index), pd.Series(0, index=df.index)
-
-        supertrend_line, supertrend_dir = calculate_supertrend(data, atr_series)
-        
         # --- AI Self-Evolution (Calculated early for signal filtering) ---
         if len(data) > 30:
             with st.spinner(f"AI 正在針對 {resolved_ticker} 進行自我進化優化..."):
@@ -1325,7 +2037,6 @@ MARKET_CONNECTED
             health_scores=health_scores, 
             vr=float(vr_series.iloc[-1]) if not vr_series.empty else 100, 
             atr=float(atr_series.iloc[-1]) if not atr_series.empty else 0, 
-            supertrend_dir=supertrend_dir.iloc[-1] if not supertrend_dir.empty else 0,
             dynamic_weights=best_weights,
             is_discount=bool(data['Close'].iloc[-1] < equilibrium.iloc[-1]),
             has_fvg=bool(bull_fvg.iloc[-1]),
@@ -1392,7 +2103,6 @@ MARKET_CONNECTED
                     h_ai = get_ai_entry_strategy(
                         data=data.iloc[:i+1], rsi=h_rsi, ema20=h_ema20, ema50=h_ema50, bb_lower=h_bb_lower, 
                         health_scores=health_scores, vr=h_vr, atr=h_atr, 
-                        supertrend_dir=supertrend_dir.iloc[i],
                         dynamic_weights=best_weights, 
                         m_colors=m_colors,
                         is_discount=bool(data['Close'].iloc[i] < equilibrium.iloc[i]),
@@ -1456,47 +2166,56 @@ MARKET_CONNECTED
 
         current_price = float(data['Close'].iloc[-1])
         
-        # 頂部關鍵指標顯示 (Top Key Metrics Display)
-        m1, m2, m3, m4, m5 = st.columns(5)
-        with m1:
-            st.metric(t["current_price"], f"{current_price:.2f}")
-        with m2:
-            prev_price = float(data['Close'].iloc[-2])
-            change = current_price - prev_price
-            st.metric(t["change"], f"{change:+.2f}", f"{(change/prev_price*100):+.2f}%")
-        with m3:
-            volume = float(data['Volume'].iloc[-1])
-            st.metric(t["volume"], f"{volume/1e6:.2f}M")
-        with m4:
-            market_cap = ticker_metadata.get('marketCap', 'N/A')
-            if isinstance(market_cap, (int, float)):
-                st.metric(t["market_cap"], f"{market_cap/1e12:.2f}T")
-            else:
-                st.metric(t["market_cap"], "N/A")
-        with m5:
-            day_high = ticker_metadata.get('dayHigh', 'N/A')
-            st.metric("當日最高", f"{day_high}" if isinstance(day_high, (int, float)) else "N/A")
+        # 頂部關鍵指標顯示 (Top Key Metrics Display) - Extravagant Grid Version
+        prev_price = float(data['Close'].iloc[-2])
+        change = current_price - prev_price
+        change_pct = (change/prev_price*100)
+        delta_color = m_colors["up"] if change >= 0 else m_colors["down"]
+        delta_bg = f"{delta_color}22"
+        
+        volume = float(data['Volume'].iloc[-1])
+        market_cap = ticker_metadata.get('marketCap', 'N/A')
+        market_cap_val = f"{market_cap/1e12:.2f}T" if isinstance(market_cap, (int, float)) else "N/A"
+        day_high = ticker_metadata.get('dayHigh', 'N/A')
+        day_high_val = f"{day_high}" if isinstance(day_high, (int, float)) else "N/A"
 
-        # 技術面評分徽章 (Technical Rating Badge)
-        sig_text, sig_color, sig_val = get_signal_score(
-            data, float(rsi_series.iloc[-1]), float(macd_series.iloc[-1]), float(signal_series.iloc[-1]), 
-            supertrend_dir=supertrend_dir.iloc[-1], 
-            m_colors=m_colors
-        )
-        
-        st.markdown("---")
-        
-        # --- AI 決策計算 (AI Decision Calculations) ---
-        with st.spinner(f"正在生成 {ticker_input} 決策分析..."):
+        st.markdown(f'''
+             <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 24px;">
+                 <div class="metric-card" style="flex-direction: row !important; justify-content: space-between !important; align-items: center !important; padding: 10px 14px !important; min-height: 45px !important; white-space: nowrap !important;">
+                     <div class="metric-label" style="margin: 0 !important; font-size: 0.75rem !important; opacity: 0.8;">{t["current_price"]}</div>
+                     <div class="metric-value" style="font-size: 1.1rem !important; margin: 0 !important; font-weight: 700;">{current_price:.2f}</div>
+                 </div>
+                 <div class="metric-card" style="flex-direction: row !important; justify-content: space-between !important; align-items: center !important; padding: 10px 14px !important; min-height: 45px !important; white-space: nowrap !important;">
+                     <div class="metric-label" style="margin: 0 !important; font-size: 0.75rem !important; opacity: 0.8;">{t["change"]}</div>
+                     <div class="metric-value" style="color: {delta_color}; background: none; -webkit-text-fill-color: {delta_color}; font-size: 1.1rem !important; margin: 0 !important; font-weight: 700;">{change:+.2f}({change_pct:+.2f}%)</div>
+                 </div>
+                 <div class="metric-card" style="flex-direction: row !important; justify-content: space-between !important; align-items: center !important; padding: 10px 14px !important; min-height: 45px !important; white-space: nowrap !important;">
+                     <div class="metric-label" style="margin: 0 !important; font-size: 0.75rem !important; opacity: 0.8;">{t["volume"]}</div>
+                     <div class="metric-value" style="font-size: 1.1rem !important; margin: 0 !important; font-weight: 700;">{volume/1e6:.2f}M</div>
+                 </div>
+                 <div class="metric-card" style="flex-direction: row !important; justify-content: space-between !important; align-items: center !important; padding: 10px 14px !important; min-height: 45px !important; white-space: nowrap !important;">
+                     <div class="metric-label" style="margin: 0 !important; font-size: 0.75rem !important; opacity: 0.8;">{t["market_cap"]}</div>
+                     <div class="metric-value" style="font-size: 1.1rem !important; margin: 0 !important; font-weight: 700;">{market_cap_val}</div>
+                 </div>
+                 <div class="metric-card" style="flex-direction: row !important; justify-content: space-between !important; align-items: center !important; padding: 10px 14px !important; min-height: 45px !important; white-space: nowrap !important;">
+                     <div class="metric-label" style="margin: 0 !important; font-size: 0.75rem !important; opacity: 0.8;">當日最高</div>
+                     <div class="metric-value" style="font-size: 1.1rem !important; margin: 0 !important; font-weight: 700;">{day_high_val}</div>
+                 </div>
+             </div>
+         ''', unsafe_allow_html=True)
+
+        # --- AI 決策與 SMC 分析 (AI Decision & SMC Analysis) ---
+        # 提前計算以支援綜合評分共識
+        with st.spinner(f"正在生成 {ticker_input} 深度共識分析..."):
             atr = float(atr_series.iloc[-1])
             
-            # 將關鍵數據存入 session_state 以確保在不同分頁間切換時數據不會消失
+            # 將關鍵數據存入 session_state
             st.session_state['ai_score'] = ai_score
             st.session_state['atr'] = atr
             st.session_state['current_price'] = current_price
             st.session_state['ticker_input'] = ticker_input
             
-            # AI 進出場策略計算 (AI Entry/Exit Strategy Calculation)
+            # AI 進出場策略計算
             entry_strategy = get_ai_entry_strategy(
                 data=data, 
                 rsi=float(rsi_series.iloc[-1]), 
@@ -1506,7 +2225,6 @@ MARKET_CONNECTED
                 health_scores=health_scores, 
                 vr=float(vr_series.iloc[-1]), 
                 atr=float(atr_series.iloc[-1]), 
-                supertrend_dir=supertrend_dir.iloc[-1],
                 dynamic_weights=best_weights,
                 m_colors=m_colors,
                 is_discount=bool(current_price < equilibrium.iloc[-1]),
@@ -1520,8 +2238,21 @@ MARKET_CONNECTED
                 data, float(rsi_series.iloc[-1]), float(bb_upper.iloc[-1]), 
                 target_median, float(atr_series.iloc[-1]), health_scores=health_scores, m_colors=m_colors
             )
+
+            # SMC 結構化分析
+            smc_data = analyze_smc(data)
+
+        # 技術面評分徽章 (Technical Rating Badge) - 現在整合了 SMC 與 AI 共識
+        sig_text, sig_color, sig_val = get_signal_score(
+            data, float(rsi_series.iloc[-1]), float(macd_series.iloc[-1]), float(signal_series.iloc[-1]), 
+            smc_data=smc_data,
+            entry_strategy=entry_strategy,
+            m_colors=m_colors
+        )
+        
+        st.markdown("---")
             
-        tab1, tab2, tab3, tab4 = st.tabs([t["tab_overview"], t["tab_tech"], t["tab_news"], t["tab_sniper"]])
+        tab1, tab2, tab3 = st.tabs([t["tab_overview"], t["tab_tech"], t["tab_news"]])
 
         with tab1:
             # 1. 快速建議與分析摘要 (Quick Recommendation & Analysis Summary)
@@ -1535,74 +2266,116 @@ MARKET_CONNECTED
                 buy_signals, 
                 sell_signals, 
                 data.index[-1],
-                supertrend_dir=supertrend_dir.iloc[-1],
+                smc_data=smc_data,
+                entry_strategy=entry_strategy,
                 m_colors=m_colors
             )
             
             # 顯示 AI 進化狀態與市場關聯 (Display Evolution Status & Market Correlation)
             st.markdown(f'''<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 24px;">
 <!-- AI Engine Status Card -->
-<div class="data-card" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0; border-left: 4px solid #58A6FF; background: linear-gradient(145deg, rgba(88, 166, 253, 0.05) 0%, #161B22 100%);">
-    <div style="display: flex; align-items: center; gap: 14px;">
-        <div style="background: rgba(56, 139, 253, 0.1); width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; border: 1px solid rgba(56, 139, 253, 0.2);">🧬</div>
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: rgba(88, 166, 255, 0.05); border: 1px solid rgba(88, 166, 255, 0.2); border-radius: 12px; backdrop-filter: blur(8px); position: relative; overflow: hidden;">
+    <div style="position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: #58A6FF;"></div>
+    <div style="display: flex; align-items: center; gap: 15px;">
+        <div style="font-size: 1.6rem; filter: drop-shadow(0 0 8px rgba(88, 166, 255, 0.4));">🧬</div>
         <div>
-            <div style="color: #58A6FF; font-size: 0.9rem; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;">AI 引擎狀態</div>
-            <div style="color: #8B949E; font-size: 0.75rem; margin-top: 2px;">模式：自我優化 (SELF_OPTIMIZED)</div>
+            <div style="color: #58A6FF; font-size: 1rem; font-weight: 800; letter-spacing: 0.5px;">AI 智能量化引擎</div>
+            <div style="color: #8B949E; font-size: 0.8rem; font-weight: 500;">模式：全自動深度學習優化</div>
         </div>
     </div>
-    <div style="text-align: right;">
-        <div style="color: #3FB950; font-size: 1.1rem; font-weight: 900; letter-spacing: -0.5px;">{learn_acc*100:.1f}%</div>
-        <div style="color: #8B949E; font-size: 0.65rem; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">核心準確率</div>
+    <div style="text-align: right; background: rgba(63, 185, 80, 0.1); padding: 8px 16px; border-radius: 10px; border: 1px solid rgba(63, 185, 80, 0.2);">
+        <div style="color: #3FB950; font-size: 1.2rem; font-weight: 900; font-family: 'JetBrains Mono', monospace;">{learn_acc*100:.1f}%</div>
+        <div style="color: #8B949E; font-size: 0.7rem; font-weight: 700; text-transform: uppercase;">預測準確率</div>
     </div>
 </div>
 
 <!-- Market Correlation Card -->
-<div class="data-card" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0; border-left: 4px solid #BC8CF2; background: linear-gradient(145deg, rgba(188, 140, 242, 0.05) 0%, #161B22 100%);">
-    <div style="display: flex; align-items: center; gap: 14px;">
-        <div style="background: rgba(188, 140, 242, 0.1); width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; border: 1px solid rgba(188, 140, 242, 0.2);">📊</div>
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: rgba(188, 140, 242, 0.05); border: 1px solid rgba(188, 140, 242, 0.2); border-radius: 12px; backdrop-filter: blur(8px); position: relative; overflow: hidden;">
+    <div style="position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: #BC8CF2;"></div>
+    <div style="display: flex; align-items: center; gap: 15px;">
+        <div style="font-size: 1.6rem; filter: drop-shadow(0 0 8px rgba(188, 140, 242, 0.4));">📊</div>
         <div>
-            <div style="color: #BC8CF2; font-size: 0.9rem; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;">大盤關聯分析</div>
-            <div style="color: #8B949E; font-size: 0.75rem; margin-top: 2px;">相關性: {market_corr:.2f} | 貝塔: {market_beta:.2f}</div>
+            <div style="color: #BC8CF2; font-size: 1rem; font-weight: 800; letter-spacing: 0.5px;">大盤關聯分析</div>
+            <div style="color: #8B949E; font-size: 0.8rem; font-weight: 500;">相關性: {market_corr:.2f} | 貝塔: {market_beta:.2f}</div>
         </div>
     </div>
-    <div style="text-align: right;">
-        <div style="color: {"#FF7B72" if relative_strength < 0 else "#3FB950"}; font-size: 1.1rem; font-weight: 900; letter-spacing: -0.5px;">
+    <div style="text-align: right; background: {"rgba(255, 123, 114, 0.1)" if relative_strength < 0 else "rgba(63, 185, 80, 0.1)"}; padding: 8px 16px; border-radius: 10px; border: 1px solid {"rgba(255, 123, 114, 0.2)" if relative_strength < 0 else "rgba(63, 185, 80, 0.2)"};">
+        <div style="color: {"#FF7B72" if relative_strength < 0 else "#3FB950"}; font-size: 1.2rem; font-weight: 900; font-family: 'JetBrains Mono', monospace;">
             {relative_strength:+.1f}%
         </div>
-        <div style="color: #8B949E; font-size: 0.65rem; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">相對超額收益</div>
+        <div style="color: #8B949E; font-size: 0.7rem; font-weight: 700; text-transform: uppercase;">相對強弱</div>
     </div>
 </div>
 </div>''', unsafe_allow_html=True)
 
-            # 推薦建議區塊 - 採用 Grid 佈局提升響應性 (Recommendation Grid)
-            st.markdown(f'''<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 24px;">
+            # --- SMC Smart Analysis (Daily Dip Style) ---
+            if smc_data:
+                bias_color = m_colors["up"] if "看多" in smc_data['bias'] else m_colors["down"] if "看空" in smc_data['bias'] else "#8B949E"
+                bias_icon = "🟢" if "看多" in smc_data['bias'] else "🔴" if "看空" in smc_data['bias'] else "⚪"
+                
+                st.markdown(f"""
+                <div class="data-card" style="border-left: 5px solid {bias_color} !important; margin-bottom: 24px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <h3 style="margin: 0; font-size: 1.25rem; font-weight: 800; color: var(--text-primary);">🛡️ SMC 結構化智能分析 <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500; margin-left: 8px;">Institutional Context</span></h3>
+                        <div style="padding: 6px 16px; border-radius: 30px; background: {bias_color}15; color: {bias_color}; border: 1px solid {bias_color}33; font-weight: 800; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; box-shadow: 0 0 15px {bias_color}11;">
+                            {bias_icon} 市場偏向: {smc_data['bias']}
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
+                        <div class="info-box">
+                            <div class="info-header">市場結構 (Structure)</div>
+                            <div class="info-row"><span class="info-label">當前狀態</span><span class="info-value" style="color: {bias_color}; font-weight: 800;">{smc_data['structure']}</span></div>
+                            <div class="info-row"><span class="info-label">區間定位</span><span class="info-value" style="color: var(--accent-gold); font-weight: 700;">{smc_data['zone']}</span></div>
+                        </div>
+                        <div class="info-box">
+                            <div class="info-header">關鍵水位 (Levels)</div>
+                            <div class="info-row"><span class="info-label">均衡價格 (EQ)</span><span class="info-value" style="font-family: 'JetBrains Mono';">{smc_data['equilibrium']:.2f}</span></div>
+                            <div class="info-row"><span class="info-label">區間高/低</span><span class="info-value" style="font-family: 'JetBrains Mono';">{smc_data['range'][1]:.1f} / {smc_data['range'][0]:.1f}</span></div>
+                        </div>
+                        <div class="info-box">
+                            <div class="info-header">最近訂單塊 (Order Block)</div>
+                            <div class="info-row"><span class="info-label">看多 OB</span><span class="info-value" style="color: {m_colors['up']}; font-weight: 700;">{f"{smc_data['bull_ob'][0]:.1f}-{smc_data['bull_ob'][1]:.1f}" if smc_data['bull_ob'] else "未發現"}</span></div>
+                            <div class="info-row"><span class="info-label">看空 OB</span><span class="info-value" style="color: {m_colors['down']}; font-weight: 700;">{f"{smc_data['bear_ob'][0]:.1f}-{smc_data['bear_ob'][1]:.1f}" if smc_data['bear_ob'] else "未發現"}</span></div>
+                        </div>
+                        <div class="info-box">
+                            <div class="info-header">失衡缺口 (FVG)</div>
+                            <div class="info-row"><span class="info-label">最新缺口</span><span class="info-value" style="font-weight: 700;">{f"{smc_data['fvgs'][-1]['type']} ({smc_data['fvgs'][-1]['bottom']:.1f}-{smc_data['fvgs'][-1]['top']:.1f})" if smc_data['fvgs'] else "已回補"}</span></div>
+                            <div class="info-row"><span class="info-label">缺口數量</span><span class="info-value">{len(smc_data['fvgs'])}</span></div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 20px; font-size: 0.85rem; color: var(--text-secondary); background: rgba(88, 166, 255, 0.05); border-radius: 8px; padding: 12px 16px; border: 1px solid rgba(88, 166, 255, 0.1); line-height: 1.6;">
+                        <span style="color: var(--accent-blue); font-weight: 800; margin-right: 8px;">💡 Daily Dip 策略提示:</span> {'當前處於 <span style="color:#3FB950;font-weight:700;">折價區 (Discount)</span>，若出現看多角色反轉 (CHoCH) 且價格回測 OB/FVG，為高勝率進場點。' if '折價區' in smc_data['zone'] else '目前價格處於 <span style="color:#FF7B72;font-weight:700;">溢價區 (Premium)</span> 或均衡點，建議等待回撤至折價區尋找機會。'}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # --- Market Correlation Card ---
+            # (已經整合到上方的 AI Engine Status Card 網格中)
+
+
+            # 推薦建議區塊 (Recommendation Grid)
+            st.markdown(f'''<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
 <!-- 當前操作建議 -->
-<div class="data-card" style="border-left: 5px solid {insight_report['action']['color']}; height: 160px; margin-bottom: 0; background: linear-gradient(180deg, {insight_report['action']['color']}0a 0%, #161B22 100%);">
-    <div style="color: #8B949E; font-size: 0.7rem; margin-bottom: 5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">當前操作建議</div>
-    <div style="font-size: 1.3rem; font-weight: 800; color: {insight_report['action']['color']}; margin-bottom: 4px;">{insight_report['action']['status']}</div>
-    <div style="color: #C9D1D9; font-size: 0.75rem; line-height: 1.4;">{insight_report['action']['desc']}</div>
+<div class="metric-card" style="border-top: 4px solid {insight_report['action']['color']} !important;">
+    <div class="metric-label">當前操作建議</div>
+    <div class="metric-value" style="color: {insight_report['action']['color']} !important; -webkit-text-fill-color: {insight_report['action']['color']} !important;">{insight_report['action']['status']}</div>
+    <div style="color: #C9D1D9; font-size: 0.85rem; margin-top: 10px; font-weight: 500;">{insight_report['action']['desc']}</div>
 </div>
 
 <!-- AI 建議買點 -->
-<div class="data-card" style="border-left: 5px solid {entry_strategy['color']}; height: 160px; margin-bottom: 0; background: linear-gradient(180deg, {entry_strategy['color']}0a 0%, #161B22 100%);">
-    <div style="color: #8B949E; font-size: 0.7rem; margin-bottom: 5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">AI 建議買點 ({entry_strategy['confidence']})</div>
-    <div style="display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px;">
-        <span style="font-size: 1.3rem; font-weight: 800; color: {entry_strategy['color']};">{c_symbol}{entry_strategy['price']:.1f}</span>
-        <span style="color: #8B949E; font-size: 0.7rem;">{entry_strategy['action']}</span>
-    </div>
-    <div style="color: #FF7B72; font-size: 0.75rem; font-weight: 700; margin-bottom: 4px;">建議停損: {c_symbol}{entry_strategy['stop_loss']:.1f}</div>
-    <div style="color: #C9D1D9; font-size: 0.7rem; line-height: 1.3;">{entry_strategy['desc']}</div>
+<div class="metric-card" style="border-top: 4px solid {entry_strategy['color']} !important;">
+    <div class="metric-label">AI 建議買點 ({entry_strategy['confidence']})</div>
+    <div class="metric-value" style="color: {entry_strategy['color']} !important; -webkit-text-fill-color: {entry_strategy['color']} !important;">{c_symbol}{entry_strategy['price']:.1f}</div>
+    <div style="color: #FF7B72; font-size: 0.9rem; font-weight: 700; margin-top: 5px;">停損: {c_symbol}{entry_strategy['stop_loss']:.1f}</div>
+    <div style="color: #C9D1D9; font-size: 0.8rem; margin-top: 8px; font-weight: 500;">{entry_strategy['desc']}</div>
 </div>
 
 <!-- AI 建議賣點 -->
-<div class="data-card" style="border-left: 5px solid {exit_strategy['color']}; height: 160px; margin-bottom: 0; background: linear-gradient(180deg, {exit_strategy['color']}0a 0%, #161B22 100%);">
-    <div style="color: #8B949E; font-size: 0.7rem; margin-bottom: 5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">AI 建議賣點 ({exit_strategy['confidence']})</div>
-    <div style="display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px;">
-        <span style="font-size: 1.3rem; font-weight: 800; color: {exit_strategy['color']};">{c_symbol}{exit_strategy['price']:.1f}</span>
-        <span style="color: #8B949E; font-size: 0.7rem;">{exit_strategy['action']}</span>
-    </div>
-    <div style="color: #3FB950; font-size: 0.75rem; font-weight: 700; margin-bottom: 4px;">出場保命線: {c_symbol}{exit_strategy['trailing_stop']:.1f}</div>
-    <div style="color: #C9D1D9; font-size: 0.7rem; line-height: 1.3;">{exit_strategy['desc']}</div>
+<div class="metric-card" style="border-top: 4px solid {exit_strategy['color']} !important;">
+    <div class="metric-label">AI 建議賣點 ({exit_strategy['confidence']})</div>
+    <div class="metric-value" style="color: {exit_strategy['color']} !important; -webkit-text-fill-color: {exit_strategy['color']} !important;">{c_symbol}{exit_strategy['price']:.1f}</div>
+    <div style="color: #3FB950; font-size: 0.9rem; font-weight: 700; margin-top: 5px;">保命線: {c_symbol}{exit_strategy['trailing_stop']:.1f}</div>
+    <div style="color: #C9D1D9; font-size: 0.8rem; margin-top: 8px; font-weight: 500;">{exit_strategy['desc']}</div>
 </div>
 </div>''', unsafe_allow_html=True)
 
@@ -1611,31 +2384,31 @@ MARKET_CONNECTED
             smc_zone = "折價區 (Discount)" if is_disc else "溢價區 (Premium)"
             smc_zone_color = "#3FB950" if is_disc else "#FF7B72"
             
-            fvg_status = "看漲 FVG 形成" if bull_fvg.iloc[-1] else ("看跌 FVG 形成" if bear_fvg.iloc[-1] else "無明顯缺口")
+            fvg_status = "看漲 FVG" if bull_fvg.iloc[-1] else ("看跌 FVG" if bear_fvg.iloc[-1] else "無明顯缺口")
             fvg_color = "#3FB950" if bull_fvg.iloc[-1] else ("#FF7B72" if bear_fvg.iloc[-1] else "#8B949E")
             
             squeeze_status = "動能擠壓中" if is_squeeze.iloc[-1] else "動能釋放中"
             squeeze_color = "#BC8CF2" if is_squeeze.iloc[-1] else "#8B949E"
             
-            unicorn_text = "🦄 Unicorn 買入訊號" if has_unicorn_buy.iloc[-1] else ("🚨 Unicorn 賣出訊號" if has_unicorn_sell.iloc[-1] else "無特殊結構")
+            unicorn_text = "🦄 Unicorn 買入" if has_unicorn_buy.iloc[-1] else ("🚨 Unicorn 賣出" if has_unicorn_sell.iloc[-1] else "無特殊結構")
             unicorn_color = "#3FB950" if has_unicorn_buy.iloc[-1] else ("#FF7B72" if has_unicorn_sell.iloc[-1] else "#8B949E")
 
-            st.markdown(f'''<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px;">
-<div class="data-card" style="padding: 12px; border: 1px solid rgba(48, 54, 61, 0.5); text-align: center;">
-    <div style="color: #8B949E; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">市場區域 (SMC Zone)</div>
-    <div style="color: {smc_zone_color}; font-size: 0.95rem; font-weight: 700;">{smc_zone}</div>
+            st.markdown(f'''<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 24px;">
+<div class="metric-card" style="flex-direction: row !important; justify-content: space-between !important; align-items: center !important; padding: 10px 14px !important; min-height: 45px !important; white-space: nowrap !important;">
+    <div style="color: #8B949E; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 !important; opacity: 0.8;">市場區域</div>
+    <div style="color: {smc_zone_color}; font-size: 1rem; font-weight: 700; margin: 0 !important;">{smc_zone}</div>
 </div>
-<div class="data-card" style="padding: 12px; border: 1px solid rgba(48, 54, 61, 0.5); text-align: center;">
-    <div style="color: #8B949E; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">失衡狀態 (FVG)</div>
-    <div style="color: {fvg_color}; font-size: 0.95rem; font-weight: 700;">{fvg_status}</div>
+<div class="metric-card" style="flex-direction: row !important; justify-content: space-between !important; align-items: center !important; padding: 10px 14px !important; min-height: 45px !important; white-space: nowrap !important;">
+    <div style="color: #8B949E; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 !important; opacity: 0.8;">失衡狀態</div>
+    <div style="color: {fvg_color}; font-size: 1rem; font-weight: 700; margin: 0 !important;">{fvg_status}</div>
 </div>
-<div class="data-card" style="padding: 12px; border: 1px solid rgba(48, 54, 61, 0.5); text-align: center;">
-    <div style="color: #8B949E; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">動能擠壓 (Squeeze)</div>
-    <div style="color: {squeeze_color}; font-size: 0.95rem; font-weight: 700;">{squeeze_status}</div>
+<div class="metric-card" style="flex-direction: row !important; justify-content: space-between !important; align-items: center !important; padding: 10px 14px !important; min-height: 45px !important; white-space: nowrap !important;">
+    <div style="color: #8B949E; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 !important; opacity: 0.8;">動能擠壓</div>
+    <div style="color: {squeeze_color}; font-size: 1rem; font-weight: 700; margin: 0 !important;">{squeeze_status}</div>
 </div>
-<div class="data-card" style="padding: 12px; border: 1px solid rgba(48, 54, 61, 0.5); text-align: center;">
-    <div style="color: #8B949E; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">專業訊號 (Unicorn)</div>
-    <div style="color: {unicorn_color}; font-size: 0.95rem; font-weight: 700;">{unicorn_text}</div>
+<div class="metric-card" style="flex-direction: row !important; justify-content: space-between !important; align-items: center !important; padding: 10px 14px !important; min-height: 45px !important; white-space: nowrap !important;">
+    <div style="color: #8B949E; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 !important; opacity: 0.8;">專業訊號</div>
+    <div style="color: {unicorn_color}; font-size: 1rem; font-weight: 700; margin: 0 !important;">{unicorn_text}</div>
 </div>
 </div>''', unsafe_allow_html=True)
 
@@ -1643,7 +2416,6 @@ MARKET_CONNECTED
             financial_data = get_financial_data(resolved_ticker)
             quant_factors = calculate_quant_factors(
                 data, ticker_metadata, rsi_series, atr_series, 
-                supertrend_dir=supertrend_dir.iloc[-1], 
                 financial_data=financial_data
             )
             
@@ -1678,6 +2450,31 @@ MARKET_CONNECTED
                     marker_line_width=0
                 ), row=2, col=1)
 
+                # --- SMC Visualizations (Overview) ---
+                if smc_data:
+                    # 1. BOS & CHoCH Lines
+                    for event in smc_data.get('bos_events', []):
+                        color = m_colors["up"] if "Bullish" in event['type'] else m_colors["down"]
+                        fig.add_hline(y=event['price'], line_dash="dash", line_color=color, opacity=0.4, 
+                                     annotation_text=f" {event['type']}", annotation_position="top left", row=1, col=1)
+                    
+                    for event in smc_data.get('choch_events', []):
+                        color = m_colors["up"] if "Bullish" in event['type'] else m_colors["down"]
+                        fig.add_hline(y=event['price'], line_dash="dot", line_color=color, opacity=0.6,
+                                     annotation_text=f" {event['type']}", annotation_position="bottom left", row=1, col=1)
+
+                    # 2. Order Blocks (OB)
+                    for ob in smc_data.get('obs', []):
+                        color = "rgba(38, 166, 154, 0.15)" if "Bullish" in ob['type'] else "rgba(239, 83, 80, 0.15)"
+                        fig.add_shape(type="rect", x0=ob['start'], y0=ob['bottom'], x1=ob['end'], y1=ob['top'],
+                                     fillcolor=color, line_width=0, layer="below", row=1, col=1)
+                    
+                    # 3. Fair Value Gaps (FVG)
+                    for fvg in smc_data.get('fvgs', []):
+                        color = "rgba(88, 166, 255, 0.1)" if "Bullish" in fvg['type'] else "rgba(255, 110, 64, 0.1)"
+                        fig.add_shape(type="rect", x0=fvg['start'], y0=fvg['bottom'], x1=fvg['end'], y1=fvg['top'],
+                                     fillcolor=color, line_width=0, layer="below", row=1, col=1)
+
                 fig.update_layout(
                     template="plotly_dark",
                     height=650,
@@ -1685,6 +2482,7 @@ MARKET_CONNECTED
                     margin=dict(l=10, r=10, t=50, b=10),
                     paper_bgcolor='rgba(0,0,0,0)',
                     plot_bgcolor='rgba(0,0,0,0)',
+                    dragmode=False,
                     legend=dict(
                         orientation="h", 
                         yanchor="bottom", y=1.02, 
@@ -1700,15 +2498,17 @@ MARKET_CONNECTED
                 fig.update_xaxes(
                     showgrid=True, gridwidth=1, gridcolor='rgba(48, 54, 61, 0.3)', 
                     zeroline=False, tickfont=dict(color="#8B949E", size=10),
+                    fixedrange=True,
                     spikemode="across", spikesnap="cursor", spikedash="dot", spikethickness=1, spikecolor="#8B949E"
                 )
                 fig.update_yaxes(
                     showgrid=True, gridwidth=1, gridcolor='rgba(48, 54, 61, 0.3)', 
                     zeroline=False, tickfont=dict(color="#8B949E", size=10),
+                    fixedrange=True,
                     side="right" # 價格放在右側更符合交易習慣
                 )
                 
-                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True, 'scrollZoom': True})
+                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
             with col_quant:
                 # 數據完整性提示 (Data Integrity Warning)
@@ -1805,6 +2605,7 @@ MARKET_CONNECTED
                     margin=dict(l=40, r=40, t=30, b=30),
                     paper_bgcolor='rgba(0,0,0,0)',
                     plot_bgcolor='rgba(0,0,0,0)',
+                    dragmode=False,
                     hovermode='closest'
                 )
                 st.plotly_chart(fig_radar, use_container_width=True, config={'displayModeBar': False})
@@ -1857,22 +2658,22 @@ MARKET_CONNECTED
                 rev_growth_color = "#26a69a" if rev_growth > 0 else "#ef5350"
                 ni_growth_color = "#26a69a" if ni_growth > 0 else "#ef5350"
                 
-                perf_html = f"""<div class="data-card" style="margin-top: 20px; background: rgba(88, 166, 255, 0.03); border: 1px solid rgba(88, 166, 255, 0.1); display: flex; justify-content: space-around; align-items: center; gap: 30px; padding: 28px; margin-bottom: 0;">
+                perf_html = f"""<div class="stat-card" style="margin-top: 15px; display: flex; justify-content: space-around; align-items: center; gap: 20px; background: rgba(88, 166, 255, 0.02); border: 1px solid #30363D; padding: 15px !important;">
 <div style="text-align: center; flex: 1;">
-<p style="color: #8B949E; font-size: 0.85rem; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">年度營收 ({latest_year})</p>
+<p class="rating-label" style="margin-bottom: 5px !important;">年度營收 ({latest_year})</p>
 <div style="display: flex; flex-direction: column; align-items: center;">
-<span style="font-size: 1.6rem; font-weight: 900; color: #F0F6FC; letter-spacing: -0.5px;">{c_symbol}{rev_latest/1e6:,.0f}M</span>
-<span style="font-size: 0.85rem; color: {rev_growth_color}; font-weight: 800; background: {rev_growth_color}15; padding: 4px 12px; border-radius: 6px; margin-top: 10px; border: 1px solid {rev_growth_color}25;">
+<span class="rating-value" style="font-size: 1.4rem !important;">{c_symbol}{rev_latest/1e6:,.0f}M</span>
+<span style="font-size: 0.75rem; color: {rev_growth_color}; font-weight: 700; margin-top: 4px;">
 {rev_growth:+.1f}% YoY
 </span>
 </div>
 </div>
-<div style="width: 1px; height: 60px; background: rgba(48, 54, 61, 0.8);"></div>
+<div style="width: 1px; height: 35px; background: #30363D;"></div>
 <div style="text-align: center; flex: 1;">
-<p style="color: #8B949E; font-size: 0.85rem; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">年度淨利 ({latest_year})</p>
+<p class="rating-label" style="margin-bottom: 5px !important;">年度淨利 ({latest_year})</p>
 <div style="display: flex; flex-direction: column; align-items: center;">
-<span style="font-size: 1.6rem; font-weight: 900; color: #F0F6FC; letter-spacing: -0.5px;">{c_symbol}{ni_latest/1e6:,.0f}M</span>
-<span style="font-size: 0.85rem; color: {ni_growth_color}; font-weight: 800; background: {ni_growth_color}15; padding: 4px 12px; border-radius: 6px; margin-top: 10px; border: 1px solid {ni_growth_color}25;">
+<span class="rating-value" style="font-size: 1.4rem !important;">{c_symbol}{ni_latest/1e6:,.0f}M</span>
+<span style="font-size: 0.75rem; color: {ni_growth_color}; font-weight: 700; margin-top: 4px;">
 {ni_growth:+.1f}% YoY
 </span>
 </div>
@@ -1883,7 +2684,7 @@ MARKET_CONNECTED
             col_gauge, col_stats_data = st.columns([1, 2])
             
             with col_gauge:
-                st.plotly_chart(create_tv_gauge(sig_val, sig_text, sig_color, m_colors=m_colors), width="stretch")
+                st.plotly_chart(create_tv_gauge(sig_val, sig_text, sig_color, m_colors=m_colors), use_container_width=True, config={'displayModeBar': False})
             
             with col_stats_data:
                 # 根據健康得分定義動態樣式 (Define dynamic styling based on health scores)
@@ -1892,48 +2693,45 @@ MARKET_CONNECTED
                 health_border = "#26a69a" if avg_health > 7 else "#ef5350" if avg_health < 4 else "#30363D"
                 health_bg = "rgba(38, 166, 154, 0.05)" if avg_health > 7 else "rgba(239, 83, 80, 0.05)" if avg_health < 4 else "#161B22"
                 
-                st.markdown(f'''<div class="data-card" style="height: 100%; margin-bottom: 0; border: 1px solid {health_border}55; background: linear-gradient(180deg, {health_bg}, rgba(13, 17, 23, 0.98)); border-radius: 18px; padding: 28px; box-shadow: 0 12px 40px rgba(0,0,0,0.3); border-top: 5px solid {health_border};">
-<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px;">
-<div>
-<h3 style="margin: 0; font-size: 1.45rem; font-weight: 800; color: #FFFFFF; display: flex; align-items: center; gap: 14px; letter-spacing: -0.2px;">
-<span style="background: {health_border}; width: 6px; height: 26px; border-radius: 3px;"></span>
-{t["key_stats"]}
-</h3>
-<p style="margin: 8px 0 0 20px; font-size: 0.85rem; color: #8B949E; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;">基本面分析 (Fundamental Analysis)</p>
+                st.markdown(f'''<div class="stat-card">
+<div class="stat-header">
+<div class="stat-title-group">
+<div class="stat-title-bar" style="background: {health_border};"></div>
+<h3 class="stat-title">{t["key_stats"]}</h3>
 </div>
 <div style="text-align: right;">
-<div style="font-size: 0.8rem; color: #8B949E; margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;">財務健康狀態</div>
-<span style="font-size: 0.95rem; background: {health_border}25; color: {health_border}; padding: 6px 16px; border-radius: 10px; border: 1px solid {health_border}50; font-weight: 900; letter-spacing: 0.8px;">
-{'優異 (EXCELLENT)' if avg_health > 7 else '警示 (WARNING)' if avg_health < 4 else '穩定 (STABLE)'}
+<div style="font-size: 0.75rem; color: #8B949E; margin-bottom: 4px; font-weight: 600;">財務健康狀態</div>
+<span class="stat-badge" style="background: {health_border}20; color: {health_border}; border: 1px solid {health_border}40;">
+{'優異' if avg_health > 7 else '警示' if avg_health < 4 else '穩定'}
 </span>
 </div>
 </div>
-<div style="display: flex; gap: 16px; margin-bottom: 28px; padding: 16px; background: rgba(48, 54, 61, 0.25); border-radius: 14px; border: 1px solid rgba(255,255,255,0.05);">
-<div style="flex: 1; text-align: center; border-right: 1px solid rgba(48, 54, 61, 0.6);">
-<div style="font-size: 0.75rem; color: #8B949E; margin-bottom: 6px; font-weight: 600;">獲利能力</div>
-<div style="font-size: 1.35rem; font-weight: 900; color: #FFFFFF;">{profitability_score}<span style="font-size: 0.85rem; color: #8B949E; font-weight: 400; margin-left: 3px;">/10</span></div>
+<div class="rating-grid">
+<div class="rating-item">
+<div class="rating-label">獲利能力</div>
+<div class="rating-value">{profitability_score}<span class="rating-denominator">/10</span></div>
 </div>
-<div style="flex: 1; text-align: center; border-right: 1px solid rgba(48, 54, 61, 0.6);">
-<div style="font-size: 0.75rem; color: #8B949E; margin-bottom: 6px; font-weight: 600;">財務槓桿</div>
-<div style="font-size: 1.35rem; font-weight: 900; color: #FFFFFF;">{leverage_score}<span style="font-size: 0.85rem; color: #8B949E; font-weight: 400; margin-left: 3px;">/10</span></div>
+<div class="rating-item">
+<div class="rating-label">財務槓桿</div>
+<div class="rating-value">{leverage_score}<span class="rating-denominator">/10</span></div>
 </div>
-<div style="flex: 1; text-align: center;">
-<div style="font-size: 0.75rem; color: #8B949E; margin-bottom: 6px; font-weight: 600;">現金流量</div>
-<div style="font-size: 1.35rem; font-weight: 900; color: #FFFFFF;">{cashflow_score}<span style="font-size: 0.85rem; color: #8B949E; font-weight: 400; margin-left: 3px;">/10</span></div>
+<div class="rating-item">
+<div class="rating-label">現金流量</div>
+<div class="rating-value">{cashflow_score}<span class="rating-denominator">/10</span></div>
 </div>
 </div>
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
-<div class="data-card" style="background: rgba(48, 54, 61, 0.18); padding: 18px; margin-bottom: 0;">
-    <p style="color: #58A6FF; font-size: 0.85rem; font-weight: 800; margin-bottom: 12px; text-transform: uppercase; border-bottom: 1px solid rgba(88, 166, 255, 0.25); padding-bottom: 8px; letter-spacing: 0.8px;">估值分析 (Valuation)</p>
-    <div style="display: flex; justify-content: space-between; font-size: 1.0rem; margin-bottom: 8px;"><span style="color: #8B949E;">{t['trailing_pe']}</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('trailingPE', 'N/A')}</span></div>
-    <div style="display: flex; justify-content: space-between; font-size: 1.0rem; margin-bottom: 8px;"><span style="color: #8B949E;">{t['forward_pe']}</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('forwardPE', 'N/A')}</span></div>
-    <div style="display: flex; justify-content: space-between; font-size: 1.0rem;"><span style="color: #8B949E;">{t['div_yield']}</span><span style="font-weight: 700; color: #3FB950;">{ticker_metadata.get('dividendYield', 0)*100:.2f}%</span></div>
+<div class="info-grid">
+<div class="info-box">
+    <p class="info-header">估值分析</p>
+    <div class="info-row"><span class="info-label">{t['trailing_pe']}</span><span class="info-value">{ticker_metadata.get('trailingPE', 'N/A')}</span></div>
+    <div class="info-row"><span class="info-label">{t['forward_pe']}</span><span class="info-value">{ticker_metadata.get('forwardPE', 'N/A')}</span></div>
+    <div class="info-row"><span class="info-label">{t['div_yield']}</span><span class="info-value" style="color: #3FB950;">{ticker_metadata.get('dividendYield', 0)*100:.2f}%</span></div>
 </div>
-<div class="data-card" style="background: rgba(48, 54, 61, 0.18); padding: 18px; margin-bottom: 0;">
-    <p style="color: #D29922; font-size: 0.85rem; font-weight: 800; margin-bottom: 12px; text-transform: uppercase; border-bottom: 1px solid rgba(210, 153, 34, 0.25); padding-bottom: 8px; letter-spacing: 0.8px;">價格區間 (Price Range)</p>
-    <div style="display: flex; justify-content: space-between; font-size: 1.0rem; margin-bottom: 8px;"><span style="color: #8B949E;">52 週最高</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('fiftyTwoWeekHigh', 'N/A')}</span></div>
-    <div style="display: flex; justify-content: space-between; font-size: 1.0rem; margin-bottom: 8px;"><span style="color: #8B949E;">52 週最低</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('fiftyTwoWeekLow', 'N/A')}</span></div>
-    <div style="display: flex; justify-content: space-between; font-size: 1.0rem;"><span style="color: #8B949E;">貝塔係數 (Beta)</span><span style="font-weight: 700; color: #FFFFFF;">{ticker_metadata.get('beta', 'N/A')}</span></div>
+<div class="info-box">
+    <p class="info-header">價格區間</p>
+    <div class="info-row"><span class="info-label">52 週最高</span><span class="info-value">{ticker_metadata.get('fiftyTwoWeekHigh', 'N/A')}</span></div>
+    <div class="info-row"><span class="info-label">52 週最低</span><span class="info-value">{ticker_metadata.get('fiftyTwoWeekLow', 'N/A')}</span></div>
+    <div class="info-row"><span class="info-label">Beta 係數</span><span class="info-value">{ticker_metadata.get('beta', 'N/A')}</span></div>
 </div>
 </div>
 {perf_html}
@@ -1951,54 +2749,56 @@ MARKET_CONNECTED
                 buy_signals, 
                 sell_signals, 
                 data.index[-1],
-                supertrend_dir=supertrend_dir.iloc[-1],
+                smc_data=smc_data,
+                entry_strategy=entry_strategy,
                 m_colors=m_colors
             )
             
             # 專業診斷區塊佈局 (Professional Diagnostic Section with Grid Layout)
-            st.markdown(f'''<div class="data-card" style="border-top: 4px solid {insight_report['action']['color']}; border-color: {insight_report['action']['color']}77; background: linear-gradient(180deg, {insight_report['action']['color']}0a 0%, #0D1117 100%); transition: all 0.5s ease; border-radius: 18px; padding: 24px; box-shadow: 0 12px 40px rgba(0,0,0,0.3);">
-<h3 style="margin-top:0; color: {insight_report['action']['color']}; font-size: 1.25rem; font-weight: 800; display: flex; align-items: center; gap: 12px; margin-bottom: 24px; letter-spacing: -0.2px;">
-<span style="font-size: 1.6rem;">⚖️</span> {ticker_display_name} - 專家技術診斷報告
+            st.markdown(f'''<div class="data-card" style="border-top: 6px solid {insight_report['action']['color']} !important; box-shadow: 0 15px 40px {insight_report['action']['color']}20, 0 0 20px {insight_report['action']['color']}10 !important; padding: 18px !important;">
+<h3 style="margin-top:0; color: {insight_report['action']['color']}; font-size: 1.25rem; font-weight: 950; display: flex; align-items: center; gap: 12px; margin-bottom: 18px; letter-spacing: -0.3px; text-shadow: 0 0 20px {insight_report['action']['color']}33, 0 3px 10px rgba(0,0,0,0.4);">
+<span style="font-size: 1.6rem; filter: drop-shadow(0 0 10px {insight_report['action']['color']}33);">⚖️</span> {ticker_display_name} - 專家技術診斷報告
 </h3>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px;">
 <!-- RSI Diagnostic -->
-<div class="data-card" style="background: rgba(48, 54, 61, 0.25); border-left: 4px solid {insight_report['rsi']['color']}; margin-bottom: 0;">
+<div class="data-card" style="background: linear-gradient(180deg, rgba(48, 54, 61, 0.4) 0%, rgba(13, 17, 23, 0.9) 100%); border: 1px solid rgba(255,255,255,0.1) !important; border-left: 6px solid {insight_report['rsi']['color']} !important; margin-bottom: 0; padding: 16px !important; box-shadow: 0 10px 25px rgba(0,0,0,0.5) !important;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <span style="color: #8B949E; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">RSI 強度</span>
-        <span style="background: {insight_report['rsi']['color']}; color: white; padding: 3px 10px; border-radius: 10px; font-size: 0.7rem; font-weight: 800;">{insight_report['rsi']['status']}</span>
+        <span style="color: #8B949E; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;">RSI 強度</span>
+        <span style="background: {insight_report['rsi']['color']}; color: white; padding: 4px 10px; border-radius: 8px; font-size: 0.7rem; font-weight: 950; box-shadow: 0 4px 10px {insight_report['rsi']['color']}33; text-shadow: 0 2px 4px rgba(0,0,0,0.4);">{insight_report['rsi']['status']}</span>
     </div>
-    <div style="font-size: 1.75rem; font-weight: 900; color: #FFFFFF; margin-bottom: 6px; letter-spacing: -0.5px;">{insight_report['rsi']['val']}</div>
-    <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.5; font-weight: 400;">{insight_report['rsi']['desc']}</div>
+    <div style="font-size: 1.8rem; font-weight: 950; color: #FFFFFF; margin-bottom: 10px; letter-spacing: -1px; text-shadow: 0 0 15px rgba(255,255,255,0.12);">{insight_report['rsi']['val']}</div>
+    <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.6; font-weight: 500; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">{insight_report['rsi']['desc']}</div>
 </div>
 
 <!-- MACD Diagnostic -->
-<div class="data-card" style="background: rgba(48, 54, 61, 0.25); border-left: 4px solid {insight_report['macd']['color']}; margin-bottom: 0;">
+<div class="data-card" style="background: linear-gradient(180deg, rgba(48, 54, 61, 0.4) 0%, rgba(13, 17, 23, 0.9) 100%); border: 1px solid rgba(255,255,255,0.1) !important; border-left: 6px solid {insight_report['macd']['color']} !important; margin-bottom: 0; padding: 16px !important; box-shadow: 0 10px 25px rgba(0,0,0,0.5) !important;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <span style="color: #8B949E; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">MACD 差值</span>
-        <span style="background: {insight_report['macd']['color']}; color: white; padding: 3px 10px; border-radius: 10px; font-size: 0.7rem; font-weight: 800;">{insight_report['macd']['status']}</span>
+        <span style="color: #8B949E; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;">MACD 差值</span>
+        <span style="background: {insight_report['macd']['color']}; color: white; padding: 4px 10px; border-radius: 8px; font-size: 0.7rem; font-weight: 950; box-shadow: 0 4px 10px {insight_report['macd']['color']}33; text-shadow: 0 2px 4px rgba(0,0,0,0.4);">{insight_report['macd']['status']}</span>
     </div>
-    <div style="font-size: 1.75rem; font-weight: 900; color: #FFFFFF; margin-bottom: 6px; letter-spacing: -0.5px;">{insight_report['macd']['val']}</div>
-    <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.5; font-weight: 400;">{insight_report['macd']['desc']}</div>
+    <div style="font-size: 1.8rem; font-weight: 950; color: #FFFFFF; margin-bottom: 10px; letter-spacing: -1px; text-shadow: 0 0 15px rgba(255,255,255,0.12);">{insight_report['macd']['val']}</div>
+    <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.6; font-weight: 500; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">{insight_report['macd']['desc']}</div>
 </div>
 
 <!-- AI Layout Suggestion -->
-<div class="data-card" style="background: linear-gradient(180deg, rgba(88, 166, 255, 0.1) 0%, #161B22 100%); border: 1px dashed rgba(88, 166, 255, 0.4); border-left: 4px solid #58A6FF; margin-bottom: 0;">
+<div class="data-card" style="background: linear-gradient(180deg, rgba(88, 166, 255, 0.1) 0%, rgba(13, 17, 23, 0.95) 100%); border: 2px dashed rgba(88, 166, 255, 0.35) !important; border-left: 6px solid #58A6FF !important; margin-bottom: 0; padding: 16px !important; box-shadow: 0 15px 35px rgba(0,0,0,0.5), inset 0 0 15px rgba(88, 166, 255, 0.08) !important;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <span style="color: #58A6FF; font-size: 0.8rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">AI 建議佈局</span>
-        <span style="color: {entry_strategy['color']}; font-weight: 900; font-size: 0.95rem;">{entry_strategy['action']} (${entry_strategy['price']:.1f})</span>
+        <span style="color: #58A6FF; font-size: 0.75rem; font-weight: 900; text-transform: uppercase; letter-spacing: 1.5px; text-shadow: 0 0 8px rgba(88, 166, 255, 0.3);">AI 建議佈局</span>
+        <span style="color: {entry_strategy['color']}; font-weight: 950; font-size: 1rem; text-shadow: 0 0 15px {entry_strategy['color']}33, 0 2px 5px rgba(0,0,0,0.5);">{entry_strategy['action']}</span>
     </div>
-    <div style="font-size: 1.1rem; color: #FFFFFF; font-weight: 700; margin-bottom: 8px;">策略部署 (信心:{entry_strategy['confidence']})</div>
-    <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.5;">{entry_strategy['desc']}</div>
+    <div style="font-size: 1.05rem; color: #FFFFFF; font-weight: 900; margin-bottom: 6px; letter-spacing: -0.2px;">策略部署 (${entry_strategy['price']:.1f})</div>
+    <div style="color: #E0E0E0; font-size: 0.8rem; line-height: 1.5; font-weight: 500;">{entry_strategy['desc']}</div>
 </div>
 
 <!-- Swing Advice -->
-<div class="data-card" style="background: linear-gradient(180deg, rgba(255, 215, 0, 0.05) 0%, #161B22 100%); border: 1px solid rgba(255, 215, 0, 0.25); border-left: 4px solid #D29922; margin-bottom: 0;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <span style="color: #D29922; font-size: 0.8rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">波段操作建議</span>
-        <span style="font-size: 1.4rem;">💡</span>
+<div class="data-card" style="background: linear-gradient(180deg, rgba(255, 215, 0, 0.06) 0%, rgba(13, 17, 23, 0.95) 100%); border: 1.5px solid rgba(255, 215, 0, 0.2) !important; border-left: 5px solid #D29922 !important; margin-bottom: 0; padding: 14px !important; box-shadow: 0 12px 25px rgba(0,0,0,0.4), inset 0 0 12px rgba(255, 215, 0, 0.03) !important;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <span style="color: #D29922; font-size: 0.75rem; font-weight: 900; text-transform: uppercase; letter-spacing: 1.2px; text-shadow: 0 0 6px rgba(210, 153, 34, 0.25);">波段操作建議</span>
+        <span style="font-size: 1.3rem; filter: drop-shadow(0 0 6px rgba(210, 153, 34, 0.3));">💡</span>
     </div>
-    <div style="font-size: 1.1rem; color: #FFFFFF; font-weight: 700; margin-bottom: 8px;">操作方針</div>
-    <div style="color: #E0E0E0; font-size: 0.85rem; line-height: 1.5;">{insight_report['swing_advice']}</div>
+    <div style="font-size: 1.05rem; color: #FFFFFF; font-weight: 900; margin-bottom: 6px; letter-spacing: -0.2px;">操作方針</div>
+    <div style="color: #E0E0E0; font-size: 0.8rem; line-height: 1.5; font-weight: 500;">{insight_report['swing_advice']}</div>
+</div>
 </div>
 </div>
 </div>''', unsafe_allow_html=True)
@@ -2043,11 +2843,15 @@ MARKET_CONNECTED
     </div>
 </div>
 
-<!-- SuperTrend Card -->
-<div class="data-card" style="margin-bottom: 0; border-top: 4px solid {"#3FB950" if supertrend_dir.iloc[-1] == 1 else "#FF7B72"}; background: linear-gradient(145deg, rgba(63, 185, 80, 0.05) 0%, #161B22 100%);">
-    <div style="color: #8B949E; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;">SuperTrend 波段方向</div>
-    <div style="font-size: 1.2rem; font-weight: 800; margin: 12px 0; color: #F0F6FC; letter-spacing: -0.2px;">{'🟢 多頭趨勢' if supertrend_dir.iloc[-1] == 1 else '🔴 空頭趨勢'}</div>
-    <div style="color: #8B949E; font-size: 0.75rem; font-family: 'Roboto Mono', monospace; font-weight: 500;">波段防守: {supertrend_line.iloc[-1]:.2f}</div>
+<!-- SMC Bias Card -->
+<div class="data-card" style="margin-bottom: 0; border-top: 4px solid {m_colors['up'] if 'Bullish' in smc_data.get('bias', '') else m_colors['down'] if 'Bearish' in smc_data.get('bias', '') else '#8B949E'}; background: linear-gradient(145deg, rgba(38, 166, 154, 0.05) 0%, #161B22 100%);">
+    <div style="color: #8B949E; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;">SMC 市場結構偏向</div>
+    <div style="font-size: 1.2rem; font-weight: 800; margin: 12px 0; color: #F0F6FC; letter-spacing: -0.2px;">
+        {smc_data.get('bias', 'N/A')}
+    </div>
+    <div style="color: #8B949E; font-size: 0.75rem; font-family: 'Roboto Mono', monospace; font-weight: 500;">
+        結構狀態: {smc_data.get('structure', 'N/A')}
+    </div>
 </div>
 </div>''', unsafe_allow_html=True)
 
@@ -2068,20 +2872,20 @@ MARKET_CONNECTED
             fig_tech.add_trace(go.Scatter(x=data.index, y=ema200, name='EMA 200', line=dict(color='#FF6D00', width=2.0, shape='spline')))
 
             # SuperTrend (Better Contrast)
-            st_color = m_colors["up"] if supertrend_dir.iloc[-1] == 1 else m_colors["down"]
-            fig_tech.add_trace(go.Scatter(x=data.index, y=supertrend_line, name='SuperTrend', line=dict(color=st_color, width=1.5, dash='dash'), opacity=0.6))
+            # fig_tech.add_trace(go.Scatter(x=data.index, y=supertrend_line, name='SuperTrend', line=dict(color=st_color, width=1.5, dash='dash'), opacity=0.6))
 
             fig_tech.update_layout(
                 title="<b>EMA 趨勢與布林通道分析</b>",
                 template="plotly_dark", height=500,
                 paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                 margin=dict(l=10, r=10, t=50, b=10),
+                dragmode=False,
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
                 hovermode="x unified",
-                xaxis=dict(showgrid=True, gridcolor='rgba(48, 54, 61, 0.2)'),
-                yaxis=dict(showgrid=True, gridcolor='rgba(48, 54, 61, 0.2)', side="right")
+                xaxis=dict(showgrid=True, gridcolor='rgba(48, 54, 61, 0.2)', fixedrange=True),
+                yaxis=dict(showgrid=True, gridcolor='rgba(48, 54, 61, 0.2)', side="right", fixedrange=True)
             )
-            st.plotly_chart(fig_tech, use_container_width=True)
+            st.plotly_chart(fig_tech, use_container_width=True, config={'displayModeBar': False})
 
 
             col_rsi, col_macd = st.columns(2)
@@ -2099,11 +2903,12 @@ MARKET_CONNECTED
                     title="<b>RSI (14) 相對強弱指標</b>", yaxis_range=[0, 100], height=300, template="plotly_dark",
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=10, r=10, t=50, b=10),
+                    dragmode=False,
                     hovermode="x unified",
-                    xaxis=dict(showgrid=False),
-                    yaxis=dict(showgrid=True, gridcolor='rgba(255, 255, 255, 0.05)', side="right")
+                    xaxis=dict(showgrid=False, fixedrange=True),
+                    yaxis=dict(showgrid=True, gridcolor='rgba(255, 255, 255, 0.05)', side="right", fixedrange=True)
                 )
-                st.plotly_chart(fig_rsi, use_container_width=True)
+                st.plotly_chart(fig_rsi, use_container_width=True, config={'displayModeBar': False})
             
             with col_macd:
                 # MACD Chart
@@ -2119,12 +2924,13 @@ MARKET_CONNECTED
                     title="<b>MACD 指數平滑異同移動平均線</b>", height=300, template="plotly_dark",
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=10, r=10, t=50, b=10),
+                    dragmode=False,
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
                     hovermode="x unified",
-                    xaxis=dict(showgrid=False),
-                    yaxis=dict(showgrid=True, gridcolor='rgba(255, 255, 255, 0.05)', side="right")
+                    xaxis=dict(showgrid=False, fixedrange=True),
+                    yaxis=dict(showgrid=True, gridcolor='rgba(255, 255, 255, 0.05)', side="right", fixedrange=True)
                 )
-                st.plotly_chart(fig_macd, use_container_width=True)
+                st.plotly_chart(fig_macd, use_container_width=True, config={'displayModeBar': False})
 
             col_kd, col_vr = st.columns(2)
             with col_kd:
@@ -2140,12 +2946,13 @@ MARKET_CONNECTED
                     title="<b>KD 指標 (9, 3, 3) 隨機指標</b>", yaxis_range=[0, 100], height=300, template="plotly_dark",
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=10, r=10, t=50, b=10),
+                    dragmode=False,
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
                     hovermode="x unified",
-                    xaxis=dict(showgrid=False),
-                    yaxis=dict(showgrid=True, gridcolor='rgba(255, 255, 255, 0.05)', side="right")
+                    xaxis=dict(showgrid=False, fixedrange=True),
+                    yaxis=dict(showgrid=True, gridcolor='rgba(255, 255, 255, 0.05)', side="right", fixedrange=True)
                 )
-                st.plotly_chart(fig_kd, use_container_width=True)
+                st.plotly_chart(fig_kd, use_container_width=True, config={'displayModeBar': False})
             
             with col_vr:
                 # VR Chart
@@ -2157,11 +2964,12 @@ MARKET_CONNECTED
                     title="<b>VR 容量比率 (26) 成交量分析</b>", height=300, template="plotly_dark",
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=10, r=10, t=50, b=10),
+                    dragmode=False,
                     hovermode="x unified",
-                    xaxis=dict(showgrid=False),
-                    yaxis=dict(showgrid=True, gridcolor='rgba(255, 255, 255, 0.05)', side="right")
+                    xaxis=dict(showgrid=False, fixedrange=True),
+                    yaxis=dict(showgrid=True, gridcolor='rgba(255, 255, 255, 0.05)', side="right", fixedrange=True)
                 )
-                st.plotly_chart(fig_vr, use_container_width=True)
+                st.plotly_chart(fig_vr, use_container_width=True, config={'displayModeBar': False})
 
 
         with tab3:
@@ -2256,56 +3064,6 @@ MARKET_CONNECTED
             except Exception as e:
                 st.error(f"新聞分頁發生錯誤: {e}")
 
-        with tab4:
-            st.markdown(f'''<div class="data-card" style="border-left: 4px solid #D29922; background: rgba(210, 153, 34, 0.05);">
-            <h3 style="margin: 0; color: #D29922;">🎯 股市狙擊手 (Stock Sniper)</h3>
-            <p style="font-size: 0.85rem; color: #8B949E; margin-top: 8px;">
-                學習自 StockSniper 與 DailyDip 概念，自動掃描市場中的高勝率機會。<br>
-                檢測項目：<b>Unicorn (OB+FVG)</b>、<b>Squeeze (動能擠壓)</b>、<b>Breakout (帶量突破)</b>。
-            </p>
-            </div>''', unsafe_allow_html=True)
-            
-            # 狙擊清單設定
-            default_sniper_list = "2330.TW, 2317.TW, 2454.TW, 2308.TW, 2303.TW, 2382.TW, 3231.TW, 2412.TW, 2881.TW, 2882.TW, 3008.TW, 2603.TW, 1513.TW, 1519.TW, 2376.TW"
-            sniper_input = st.text_area("狙擊掃描清單 (逗號分隔)", value=default_sniper_list, height=100)
-            
-            col_scan, col_clear = st.columns([1, 4])
-            with col_scan:
-                start_scan = st.button("🚀 開始全市場狙擊", type="primary", use_container_width=True)
-            
-            if start_scan:
-                ticker_list = [t.strip() for t in sniper_input.split(",")]
-                scan_results = run_sniper_scan(ticker_list)
-                
-                if not scan_results.empty:
-                    st.markdown("### 🔍 狙擊掃描結果")
-                    
-                    # 格式化顯示 DataFrame
-                    def color_score(val):
-                        color = "#ef5350" if val < 30 else "#D29922" if val < 60 else "#26a69a"
-                        return f'color: {color}; font-weight: bold'
-
-                    st.dataframe(
-                        scan_results.style.map(color_score, subset=['狙擊分數']),
-                        use_container_width=True,
-                        height=500
-                    )
-                    
-                    # 推薦進場標的 (分數最高的前三名)
-                    top_picks = scan_results.head(3)
-                    if not top_picks.empty:
-                        st.success(f"🎯 狙擊手推薦：本日最值得關注標的為 **{', '.join(top_picks['代碼'].tolist())}**")
-                    
-                    # 下載掃描結果
-                    csv = scan_results.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button(
-                        label="📥 下載狙擊報表 (CSV)",
-                        data=csv,
-                        file_name=f"sniper_report_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv",
-                    )
-                else:
-                    st.warning("目前掃描範圍內無明顯狙擊信號，請更換掃描清單。")
 
         # Footer
         st.markdown("---")
