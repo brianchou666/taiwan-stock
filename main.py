@@ -1505,8 +1505,8 @@ def run_sniper_scan(ticker_list):
         progress_bar.progress((i + 1) / len(unique_tickers))
         
         try:
-            # 獲取 60 天數據進行分析
-            data, resolved = get_stock_data(ticker, period="60d", interval="1d")
+            # 獲取 150 天數據進行分析，以支援 100 日滾動計算 (Squeeze 等)
+            data, resolved = get_stock_data(ticker, period="150d", interval="1d")
             if data is None or len(data) < 30:
                 failed_tickers.append(ticker)
                 continue
@@ -1527,11 +1527,15 @@ def run_sniper_scan(ticker_list):
             
             # 檢查 FVG 是否存在於最近 5 根 K 線
             has_recent_fvg = False
-            if has_smc:
-                has_recent_fvg = any(f[0] == "Bullish" for f in smc_info['fvgs'])
+            if has_smc and smc_info['fvgs']:
+                has_recent_fvg = any("Bullish" in f.get('type', '') for f in smc_info['fvgs'])
             
-            # Unicorn Setup: Price in OB + Recent FVG
-            has_unicorn = (data['Low'].iloc[-1] <= bull_ob_price * 1.01) and has_recent_fvg if bull_ob_price > 0 else False
+            # Unicorn Setup: Price near OB + Recent FVG (放寬判定：價格低點接近 OB 頂部或在區間內)
+            has_unicorn = False
+            if has_smc and smc_info['bull_ob'] and has_recent_fvg:
+                ob_bottom, ob_top = smc_info['bull_ob']
+                # 只要價格低點觸及或接近 OB 頂部 (1.02) 且高於 OB 底部
+                has_unicorn = (data['Low'].iloc[-1] <= ob_top * 1.02) and (data['Close'].iloc[-1] >= ob_bottom * 0.98)
             
             # 3. Squeeze & Volume
             ma20 = data['Close'].rolling(window=20).mean()
@@ -1542,17 +1546,20 @@ def run_sniper_scan(ticker_list):
             bb_lower = ma20 - (2 * std20)
             bb_width = (bb_upper - bb_lower) / ma20
             
-            # Squeeze logic
-            is_squeeze = bb_width.iloc[-1] < bb_width.rolling(window=100).quantile(0.2).iloc[-1]
+            # Squeeze logic (放寬分位數至 0.25)
+            is_squeeze = bb_width.iloc[-1] < bb_width.rolling(window=100).quantile(0.25).iloc[-1]
             # Squeeze Breakout: Price breaks above BB upper while squeeze is ending or just ended
-            is_squeeze_breakout = (current_price > bb_upper.iloc[-1]) and (bb_width.iloc[-1] > bb_width.iloc[-2]) and (bb_width.iloc[-2] < bb_width.rolling(window=100).quantile(0.2).iloc[-2])
+            is_squeeze_breakout = (current_price > bb_upper.iloc[-1]) and (bb_width.iloc[-1] > bb_width.iloc[-2]) and (bb_width.iloc[-2] < bb_width.rolling(window=100).quantile(0.25).iloc[-2])
 
-            # Volume Spike
+            # Volume Spike (放寬至 1.5 倍平均成交量)
             avg_vol = data['Volume'].rolling(window=20).mean()
-            vol_spike = data['Volume'].iloc[-1] > avg_vol.iloc[-1] * 2
+            vol_spike = data['Volume'].iloc[-1] > avg_vol.iloc[-1] * 1.5
 
             # MA Alignment (多頭排列)
             ma_alignment = ma5.iloc[-1] > ma20.iloc[-1] > ma60.iloc[-1] if not ma60.isnull().all() else False
+            
+            # 趨勢判定
+            is_uptrend = current_price > ma20.iloc[-1] and ma20.iloc[-1] > ma20.iloc[-2]
             
             # 4. 指標
             delta = data['Close'].diff()
@@ -1565,46 +1572,61 @@ def run_sniper_scan(ticker_list):
             tags = []
             score = 0
             
+            # 基礎標籤 (確保不為空)
+            if is_uptrend:
+                tags.append("📈多頭")
+                score += 10
+            if rsi > 60:
+                tags.append("🔥強勢")
+                score += 10
+            elif rsi < 35:
+                tags.append("🛡️超跌")
+                score += 10
+
             # SMC Tags
             if has_smc:
-                if smc_info['bias'] == "Bullish":
-                    tags.append("🐂 Bias:Bull")
+                if "Bullish" in smc_info.get('bias', ''):
+                    tags.append("🐂看多")
                     score += 15
-                if "CHoCH" in smc_info['structure']:
-                    tags.append("⚡ CHoCH")
+                if "CHoCH" in smc_info.get('structure', ''):
+                    tags.append("⚡CHoCH")
                     score += 20
-                if "BOS" in smc_info['structure']:
-                    tags.append("🔗 BOS")
+                if "BOS" in smc_info.get('structure', ''):
+                    tags.append("🔗BOS")
                     score += 10
-                if smc_info['zone'].startswith("Discount"):
-                    tags.append("💎 Discount")
+                if "Discount" in smc_info.get('zone', ''):
+                    tags.append("💎折價")
                     score += 15
                 if has_recent_fvg:
-                    tags.append("🚀 GAP")
+                    tags.append("🚀缺口")
                     score += 10
 
             if has_unicorn: 
-                tags.append("🦄 Unicorn")
+                tags.append("🦄獨角獸")
                 score += 30 # OB + FVG confluence
             if is_squeeze: 
-                tags.append("🌀 Squeeze")
+                tags.append("🌀擠壓")
                 score += 20
             if is_squeeze_breakout:
-                tags.append("💥 SqzBreak")
+                tags.append("💥突破")
                 score += 30
             if vol_spike:
-                tags.append("📊 VolSpike")
+                tags.append("📊放量")
                 score += 25
             if ma_alignment:
-                tags.append("📈 BullTrend")
+                tags.append("📈排列")
                 score += 15
             if change_pct > 3: 
-                tags.append("🚀 Breakout")
+                tags.append("🚀大漲")
                 score += 10
             if 30 < rsi < 45: 
-                tags.append("📉 Reversal?")
+                tags.append("📉反轉?")
                 score += 15
 
+            # 如果沒有任何訊號，顯示觀望標籤
+            if not tags:
+                tags.append("🔍 觀望中")
+                score = 5
             
             results.append({
                 "代碼": resolved,
